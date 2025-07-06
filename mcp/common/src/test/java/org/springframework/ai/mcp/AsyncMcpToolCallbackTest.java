@@ -31,7 +31,8 @@ class AsyncMcpToolCallbackTest {
 		when(this.mcpClient.callTool(any(McpSchema.CallToolRequest.class))).thenReturn(Mono.just(callToolResult));
 
 		var callback = new AsyncMcpToolCallback(this.mcpClient, this.tool);
-		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}")).isInstanceOf(ToolExecutionException.class)
+		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}").block())
+			.isInstanceOf(ToolExecutionException.class)
 			.cause()
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessage("Error calling tool: [TextContent[audience=null, priority=null, text=Some error data]]");
@@ -46,7 +47,8 @@ class AsyncMcpToolCallbackTest {
 			.thenReturn(Mono.error(new Exception("Testing tool error")));
 
 		var callback = new AsyncMcpToolCallback(this.mcpClient, this.tool);
-		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}")).isInstanceOf(ToolExecutionException.class)
+		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}").block())
+			.isInstanceOf(ToolExecutionException.class)
 			.rootCause()
 			.hasMessage("Testing tool error");
 	}

@@ -182,67 +182,73 @@ public class MistralAiChatModel implements ChatModel {
 	}
 
 	public ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
+		return internalCallReactive(prompt, previousChatResponse).block();
+	}
 
-		MistralAiApi.ChatCompletionRequest request = createRequest(prompt, false);
+	public Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse previousChatResponse) {
+		return Mono.fromCallable(() -> {
+			MistralAiApi.ChatCompletionRequest request = createRequest(prompt, false);
 
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(prompt)
-			.provider(MistralAiApi.PROVIDER_NAME)
-			.build();
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(prompt)
+				.provider(MistralAiApi.PROVIDER_NAME)
+				.build();
 
-		ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
+			ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> {
 
-				ResponseEntity<ChatCompletion> completionEntity = this.retryTemplate
-					.execute(ctx -> this.mistralAiApi.chatCompletionEntity(request));
+					ResponseEntity<ChatCompletion> completionEntity = this.retryTemplate
+						.execute(ctx -> this.mistralAiApi.chatCompletionEntity(request));
 
-				ChatCompletion chatCompletion = completionEntity.getBody();
+					ChatCompletion chatCompletion = completionEntity.getBody();
 
-				if (chatCompletion == null) {
-					logger.warn("No chat completion returned for prompt: {}", prompt);
-					return new ChatResponse(List.of());
-				}
+					if (chatCompletion == null) {
+						logger.warn("No chat completion returned for prompt: {}", prompt);
+						return new ChatResponse(List.of());
+					}
 
-				List<Generation> generations = chatCompletion.choices().stream().map(choice -> {
-			// @formatter:off
-					Map<String, Object> metadata = Map.of(
-							"id", chatCompletion.id() != null ? chatCompletion.id() : "",
-							"index", choice.index(),
-							"role", choice.message().role() != null ? choice.message().role().name() : "",
-							"finishReason", choice.finishReason() != null ? choice.finishReason().name() : "");
-					// @formatter:on
-					return buildGeneration(choice, metadata);
-				}).toList();
+					List<Generation> generations = chatCompletion.choices().stream().map(choice -> {
+				// @formatter:off
+						Map<String, Object> metadata = Map.of(
+								"id", chatCompletion.id() != null ? chatCompletion.id() : "",
+								"index", choice.index(),
+								"role", choice.message().role() != null ? choice.message().role().name() : "",
+								"finishReason", choice.finishReason() != null ? choice.finishReason().name() : "");
+						// @formatter:on
+						return buildGeneration(choice, metadata);
+					}).toList();
 
-				DefaultUsage usage = getDefaultUsage(completionEntity.getBody().usage());
-				Usage cumulativeUsage = UsageCalculator.getCumulativeUsage(usage, previousChatResponse);
-				ChatResponse chatResponse = new ChatResponse(generations,
-						from(completionEntity.getBody(), cumulativeUsage));
+					DefaultUsage usage = getDefaultUsage(completionEntity.getBody().usage());
+					Usage cumulativeUsage = UsageCalculator.getCumulativeUsage(usage, previousChatResponse);
+					ChatResponse chatResponse = new ChatResponse(generations,
+							from(completionEntity.getBody(), cumulativeUsage));
 
-				observationContext.setResponse(chatResponse);
+					observationContext.setResponse(chatResponse);
 
-				return chatResponse;
-			});
+					return chatResponse;
+				});
 
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(response)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
+				return this.toolCallingManager.executeToolCalls(prompt, response).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						// Return tool execution result directly to the client.
+						return Mono.just(ChatResponse.builder()
+							.from(response)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						// Send the tool execution result back to the model.
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						response);
-			}
-		}
 
-		return response;
+			return Mono.just(response);
+		}).flatMap(response -> response);
 	}
 
 	@Override
@@ -315,28 +321,18 @@ public class MistralAiChatModel implements ChatModel {
 			// @formatter:off
 			Flux<ChatResponse> chatResponseFlux = chatResponse.flatMap(response -> {
 				if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-					// FIXME: bounded elastic needs to be used since tool calling
-					//  is currently only synchronous
-					return Flux.deferContextual((ctx) -> {
-						ToolExecutionResult toolExecutionResult;
-						try {
-							ToolCallReactiveContextHolder.setContext(ctx);
-							toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-						} finally {
-							ToolCallReactiveContextHolder.clearContext();
-						}
-						if (toolExecutionResult.returnDirect()) {
-							// Return tool execution result directly to the client.
-							return Flux.just(ChatResponse.builder().from(response)
-									.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-									.build());
-						}
-						else {
-							// Send the tool execution result back to the model.
-							return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-									response);
-						}
-					}).subscribeOn(Schedulers.boundedElastic());
+					// Fully reactive tool calling - no more bounded elastic needed!
+					return this.toolCallingManager.executeToolCalls(prompt, response)
+						.flatMapMany(toolExecutionResult -> {
+							if (toolExecutionResult.returnDirect()) {
+								return Flux.just(ChatResponse.builder().from(response)
+										.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+										.build());
+							} else {
+								return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+										response);
+							}
+						});
 				}
 				else {
 					return Flux.just(response);

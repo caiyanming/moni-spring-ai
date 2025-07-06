@@ -183,7 +183,10 @@ public class OpenAiChatModel implements ChatModel {
 	}
 
 	public ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
+		return internalCallReactive(prompt, previousChatResponse).block();
+	}
 
+	public Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse previousChatResponse) {
 		ChatCompletionRequest request = createRequest(prompt, false);
 
 		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
@@ -191,26 +194,23 @@ public class OpenAiChatModel implements ChatModel {
 			.provider(OpenAiApiConstants.PROVIDER_NAME)
 			.build();
 
-		ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
+		// Convert the synchronous API call to reactive
+		return Mono.fromCallable(() -> {
+			return this.retryTemplate
+				.execute(ctx -> this.openAiApi.chatCompletionEntity(request, getAdditionalHttpHeaders(prompt)));
+		}).subscribeOn(Schedulers.boundedElastic()).map(completionEntity -> {
+			var chatCompletion = completionEntity.getBody();
 
-				ResponseEntity<ChatCompletion> completionEntity = this.retryTemplate
-					.execute(ctx -> this.openAiApi.chatCompletionEntity(request, getAdditionalHttpHeaders(prompt)));
+			if (chatCompletion == null) {
+				logger.warn("No chat completion returned for prompt: {}", prompt);
+				return new ChatResponse(List.of());
+			}
 
-				var chatCompletion = completionEntity.getBody();
-
-				if (chatCompletion == null) {
-					logger.warn("No chat completion returned for prompt: {}", prompt);
-					return new ChatResponse(List.of());
-				}
-
-				List<Choice> choices = chatCompletion.choices();
-				if (choices == null) {
-					logger.warn("No choices returned for prompt: {}", prompt);
-					return new ChatResponse(List.of());
-				}
+			List<Choice> choices = chatCompletion.choices();
+			if (choices == null) {
+				logger.warn("No choices returned for prompt: {}", prompt);
+				return new ChatResponse(List.of());
+			}
 
 			// @formatter:off
 				List<Generation> generations = choices.stream().map(choice -> {
@@ -225,39 +225,36 @@ public class OpenAiChatModel implements ChatModel {
 				}).toList();
 				// @formatter:on
 
-				RateLimit rateLimit = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(completionEntity);
+			RateLimit rateLimit = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(completionEntity);
 
-				// Current usage
-				OpenAiApi.Usage usage = chatCompletion.usage();
-				Usage currentChatResponseUsage = usage != null ? getDefaultUsage(usage) : new EmptyUsage();
-				Usage accumulatedUsage = UsageCalculator.getCumulativeUsage(currentChatResponseUsage,
-						previousChatResponse);
-				ChatResponse chatResponse = new ChatResponse(generations,
-						from(chatCompletion, rateLimit, accumulatedUsage));
+			// Current usage
+			OpenAiApi.Usage usage = chatCompletion.usage();
+			Usage currentChatResponseUsage = usage != null ? getDefaultUsage(usage) : new EmptyUsage();
+			Usage accumulatedUsage = UsageCalculator.getCumulativeUsage(currentChatResponseUsage, previousChatResponse);
+			ChatResponse chatResponse = new ChatResponse(generations,
+					from(chatCompletion, rateLimit, accumulatedUsage));
 
-				observationContext.setResponse(chatResponse);
-
-				return chatResponse;
-
-			});
-
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(response)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+			observationContext.setResponse(chatResponse);
+			return chatResponse;
+		}).flatMap(response -> {
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
+				return this.toolCallingManager.executeToolCalls(prompt, response).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						// Return tool execution result directly to the client.
+						return Mono.just(ChatResponse.builder()
+							.from(response)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						// Send the tool execution result back to the model.
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						response);
-			}
-		}
-
-		return response;
+			return Mono.just(response);
+		});
 	}
 
 	@Override
@@ -364,28 +361,21 @@ public class OpenAiChatModel implements ChatModel {
 			// @formatter:off
 			Flux<ChatResponse> flux = chatResponse.flatMap(response -> {
 				if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-					// FIXME: bounded elastic needs to be used since tool calling
-					//  is currently only synchronous
-					return Flux.deferContextual((ctx) -> {
-						ToolExecutionResult toolExecutionResult;
-						try {
-							ToolCallReactiveContextHolder.setContext(ctx);
-							toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-						} finally {
-							ToolCallReactiveContextHolder.clearContext();
-						}
-						if (toolExecutionResult.returnDirect()) {
-							// Return tool execution result directly to the client.
-							return Flux.just(ChatResponse.builder().from(response)
-									.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-									.build());
-						}
-						else {
-							// Send the tool execution result back to the model.
-							return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-									response);
-						}
-					}).subscribeOn(Schedulers.boundedElastic());
+					// Fully reactive tool calling - no more bounded elastic needed!
+					return this.toolCallingManager.executeToolCalls(prompt, response)
+						.flatMapMany(toolExecutionResult -> {
+							if (toolExecutionResult.returnDirect()) {
+								// Return tool execution result directly to the client.
+								return Flux.just(ChatResponse.builder().from(response)
+										.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+										.build());
+							}
+							else {
+								// Send the tool execution result back to the model.
+								return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+										response);
+							}
+						});
 				}
 				else {
 					return Flux.just(response);

@@ -89,7 +89,8 @@ public class ToolCallingManagerTests {
 		assertThat(chatResponse).isNotNull();
 		assertThat(chatResponse.hasToolCalls()).isTrue();
 
-		ToolExecutionResult toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse)
+			.block();
 
 		assertThat(toolExecutionResult.conversationHistory()).isNotEmpty();
 		assertThat(toolExecutionResult.conversationHistory().stream().anyMatch(m -> m instanceof ToolResponseMessage))
@@ -109,7 +110,8 @@ public class ToolCallingManagerTests {
 	private void runExplicitToolCallingExecutionWithOptionsStream(ChatOptions chatOptions, Prompt prompt) {
 		ChatResponse chatResponse = this.openAiChatModel.stream(prompt).flatMap(response -> {
 			if (response.hasToolCalls()) {
-				ToolExecutionResult toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
+				ToolExecutionResult toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response)
+					.block();
 
 				assertThat(toolExecutionResult.conversationHistory()).isNotEmpty();
 				assertThat(toolExecutionResult.conversationHistory()

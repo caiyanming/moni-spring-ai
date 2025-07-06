@@ -63,6 +63,7 @@ import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccess
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.azure.openai.AzureOpenAiResponseFormat.JsonSchema;
@@ -252,42 +253,48 @@ public class AzureOpenAiChatModel implements ChatModel {
 	}
 
 	public ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
+		return internalCallReactive(prompt, previousChatResponse).block();
+	}
 
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(prompt)
-			.provider(AiProvider.AZURE_OPENAI.value())
-			.build();
+	public Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse previousChatResponse) {
+		return Mono.fromCallable(() -> {
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(prompt)
+				.provider(AiProvider.AZURE_OPENAI.value())
+				.build();
 
-		ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
-				ChatCompletionsOptions options = toAzureChatCompletionsOptions(prompt);
-				ChatCompletionsOptionsAccessHelper.setStream(options, false);
+			ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> {
+					ChatCompletionsOptions options = toAzureChatCompletionsOptions(prompt);
+					ChatCompletionsOptionsAccessHelper.setStream(options, false);
 
-				ChatCompletions chatCompletions = this.openAIClient.getChatCompletions(options.getModel(), options);
-				ChatResponse chatResponse = toChatResponse(chatCompletions, previousChatResponse);
-				observationContext.setResponse(chatResponse);
-				return chatResponse;
-			});
+					ChatCompletions chatCompletions = this.openAIClient.getChatCompletions(options.getModel(), options);
+					ChatResponse chatResponse = toChatResponse(chatCompletions, previousChatResponse);
+					observationContext.setResponse(chatResponse);
+					return chatResponse;
+				});
 
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(response)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
+				return this.toolCallingManager.executeToolCalls(prompt, response).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						// Return tool execution result directly to the client.
+						return Mono.just(ChatResponse.builder()
+							.from(response)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						// Send the tool execution result back to the model.
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						response);
-			}
-		}
 
-		return response;
+			return Mono.just(response);
+		}).flatMap(response -> response);
 	}
 
 	@Override
@@ -377,43 +384,37 @@ public class AzureOpenAiChatModel implements ChatModel {
 				return chatResponse1;
 			});
 
-			return chatResponseFlux.flatMap(chatResponse -> {
+			Flux<ChatResponse> toolEnabledFlux = chatResponseFlux.flatMap(chatResponse -> {
 				if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), chatResponse)) {
-					// FIXME: bounded elastic needs to be used since tool calling
-					// is currently only synchronous
-					return Flux.deferContextual((ctx) -> {
-						ToolExecutionResult toolExecutionResult;
-						try {
-							ToolCallReactiveContextHolder.setContext(ctx);
-							toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse);
-						}
-						finally {
-							ToolCallReactiveContextHolder.clearContext();
-						}
-						if (toolExecutionResult.returnDirect()) {
-							// Return tool execution result directly to the client.
-							return Flux.just(ChatResponse.builder()
-								.from(chatResponse)
-								.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-								.build());
-						}
-						else {
-							// Send the tool execution result back to the model.
-							return this.internalStream(
-									new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-									chatResponse);
-						}
-					}).subscribeOn(Schedulers.boundedElastic());
+					// Fully reactive tool calling - no more bounded elastic needed!
+					return this.toolCallingManager.executeToolCalls(prompt, chatResponse)
+						.flatMapMany(toolExecutionResult -> {
+							if (toolExecutionResult.returnDirect()) {
+								// Return tool execution result directly to the client.
+								return Flux.just(ChatResponse.builder()
+									.from(chatResponse)
+									.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+									.build());
+							}
+							else {
+								// Send the tool execution result back to the model.
+								return this.internalStream(
+										new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+										chatResponse);
+							}
+						});
 				}
+				else {
+					// If internal tool execution is not required, just return the chat
+					// response.
+					return Flux.just(chatResponse);
+				}
+			})
+				.doOnError(observation::error)
+				.doFinally(s -> observation.stop())
+				.contextWrite(ctx -> ctx.put(ObservationThreadLocalAccessor.KEY, observation));
 
-				Flux<ChatResponse> flux = Flux.just(chatResponse)
-					.doOnError(observation::error)
-					.doFinally(s -> observation.stop())
-					.contextWrite(ctx -> ctx.put(ObservationThreadLocalAccessor.KEY, observation));
-
-				return new MessageAggregator().aggregate(flux, observationContext::setResponse);
-			});
-
+			return new MessageAggregator().aggregate(toolEnabledFlux, observationContext::setResponse);
 		});
 
 	}

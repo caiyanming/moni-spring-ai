@@ -20,6 +20,8 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.lang.Nullable;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 /**
  * Represents a tool whose execution can be triggered by an AI model.
@@ -42,18 +44,19 @@ public interface ToolCallback {
 	}
 
 	/**
-	 * Execute tool with the given input and return the result to send back to the AI
-	 * model.
+	 * Execute tool with the given input and return the result reactively to send back to
+	 * the AI model. This is the primary method for reactive tool execution.
 	 */
-	String call(String toolInput);
+	Mono<String> call(String toolInput);
 
 	/**
-	 * Execute tool with the given input and context, and return the result to send back
-	 * to the AI model.
+	 * Execute tool with the given input and context, and return the result reactively to
+	 * send back to the AI model. This is the primary method for reactive tool execution
+	 * with context.
 	 */
-	default String call(String toolInput, @Nullable ToolContext toolContext) {
+	default Mono<String> call(String toolInput, @Nullable ToolContext toolContext) {
 		if (toolContext != null && !toolContext.getContext().isEmpty()) {
-			throw new UnsupportedOperationException("Tool context is not supported!");
+			return Mono.error(new UnsupportedOperationException("Tool context is not supported!"));
 		}
 		return call(toolInput);
 	}

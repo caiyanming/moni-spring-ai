@@ -39,6 +39,7 @@ import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.ai.tool.resolution.ToolCallbackResolver;
+import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -169,7 +170,7 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 	}
@@ -191,7 +192,7 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 		assertThat(toolExecutionResult.returnDirect()).isTrue();
@@ -218,7 +219,7 @@ class DefaultToolCallingManagerTests {
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!"),
 						new ToolResponseMessage.ToolResponse("toolB", "toolB", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 	}
@@ -240,7 +241,7 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 	}
@@ -266,7 +267,7 @@ class DefaultToolCallingManagerTests {
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!"),
 						new ToolResponseMessage.ToolResponse("toolB", "toolB", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 		assertThat(toolExecutionResult.returnDirect()).isTrue();
@@ -293,7 +294,7 @@ class DefaultToolCallingManagerTests {
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!"),
 						new ToolResponseMessage.ToolResponse("toolB", "toolB", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 		assertThat(toolExecutionResult.returnDirect()).isFalse();
@@ -316,7 +317,7 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolC", "toolC", "You failed this city!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 	}
@@ -359,7 +360,7 @@ class DefaultToolCallingManagerTests {
 						new ToolResponseMessage.ToolResponse("toolB", "toolB",
 								TestGenericClass.CALL_WITH_TOOL_CONTEXT_RESULT_JSON)));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
 
 		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
 	}
@@ -391,8 +392,8 @@ class DefaultToolCallingManagerTests {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			return "Mission accomplished!";
+		public Mono<String> call(String toolInput) {
+			return Mono.just("Mission accomplished!");
 		}
 
 	}
@@ -411,8 +412,9 @@ class DefaultToolCallingManagerTests {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			throw new ToolExecutionException(this.toolDefinition, new IllegalStateException("You failed this city!"));
+		public Mono<String> call(String toolInput) {
+			return Mono.error(new ToolExecutionException(this.toolDefinition,
+					new IllegalStateException("You failed this city!")));
 		}
 
 	}

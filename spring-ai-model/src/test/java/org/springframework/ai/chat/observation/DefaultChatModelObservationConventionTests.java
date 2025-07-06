@@ -37,6 +37,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.metadata.ToolMetadata;
+import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.ai.chat.observation.ChatModelObservationDocumentation.HighCardinalityKeyNames;
@@ -248,8 +249,8 @@ class DefaultChatModelObservationConventionTests {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			return "Mission accomplished!";
+		public Mono<String> call(String toolInput) {
+			return Mono.just("Mission accomplished!");
 		}
 
 	}

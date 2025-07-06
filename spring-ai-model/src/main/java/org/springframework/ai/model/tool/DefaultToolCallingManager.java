@@ -25,6 +25,9 @@ import java.util.Optional;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -117,7 +120,7 @@ public final class DefaultToolCallingManager implements ToolCallingManager {
 	}
 
 	@Override
-	public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
+	public Mono<ToolExecutionResult> executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
 		Assert.notNull(prompt, "prompt cannot be null");
 		Assert.notNull(chatResponse, "chatResponse cannot be null");
 
@@ -127,23 +130,22 @@ public final class DefaultToolCallingManager implements ToolCallingManager {
 			.findFirst();
 
 		if (toolCallGeneration.isEmpty()) {
-			throw new IllegalStateException("No tool call requested by the chat model");
+			return Mono.error(new IllegalStateException("No tool call requested by the chat model"));
 		}
 
 		AssistantMessage assistantMessage = toolCallGeneration.get().getOutput();
-
 		ToolContext toolContext = buildToolContext(prompt, assistantMessage);
 
-		InternalToolExecutionResult internalToolExecutionResult = executeToolCall(prompt, assistantMessage,
-				toolContext);
+		// Execute tool calls completely reactively
+		return executeToolCallsReactively(prompt, assistantMessage, toolContext).map(internalResult -> {
+			List<Message> conversationHistory = buildConversationHistoryAfterToolExecution(prompt.getInstructions(),
+					assistantMessage, internalResult.toolResponseMessage());
 
-		List<Message> conversationHistory = buildConversationHistoryAfterToolExecution(prompt.getInstructions(),
-				assistantMessage, internalToolExecutionResult.toolResponseMessage());
-
-		return ToolExecutionResult.builder()
-			.conversationHistory(conversationHistory)
-			.returnDirect(internalToolExecutionResult.returnDirect())
-			.build();
+			return ToolExecutionResult.builder()
+				.conversationHistory(conversationHistory)
+				.returnDirect(internalResult.returnDirect())
+				.build();
+		});
 	}
 
 	private static ToolContext buildToolContext(Prompt prompt, AssistantMessage assistantMessage) {
@@ -169,68 +171,87 @@ public final class DefaultToolCallingManager implements ToolCallingManager {
 	}
 
 	/**
-	 * Execute the tool call and return the response message.
+	 * Execute the tool calls reactively and return the response message. This method
+	 * processes multiple tool calls in parallel for better performance.
 	 */
-	private InternalToolExecutionResult executeToolCall(Prompt prompt, AssistantMessage assistantMessage,
-			ToolContext toolContext) {
-		List<ToolCallback> toolCallbacks = List.of();
+	private Mono<InternalToolExecutionResult> executeToolCallsReactively(Prompt prompt,
+			AssistantMessage assistantMessage, ToolContext toolContext) {
+		final List<ToolCallback> toolCallbacks;
 		if (prompt.getOptions() instanceof ToolCallingChatOptions toolCallingChatOptions) {
 			toolCallbacks = toolCallingChatOptions.getToolCallbacks();
 		}
-
-		List<ToolResponseMessage.ToolResponse> toolResponses = new ArrayList<>();
-
-		Boolean returnDirect = null;
-
-		for (AssistantMessage.ToolCall toolCall : assistantMessage.getToolCalls()) {
-
-			logger.debug("Executing tool call: {}", toolCall.name());
-
-			String toolName = toolCall.name();
-			String toolInputArguments = toolCall.arguments();
-
-			ToolCallback toolCallback = toolCallbacks.stream()
-				.filter(tool -> toolName.equals(tool.getToolDefinition().name()))
-				.findFirst()
-				.orElseGet(() -> this.toolCallbackResolver.resolve(toolName));
-
-			if (toolCallback == null) {
-				throw new IllegalStateException("No ToolCallback found for tool name: " + toolName);
-			}
-
-			if (returnDirect == null) {
-				returnDirect = toolCallback.getToolMetadata().returnDirect();
-			}
-			else {
-				returnDirect = returnDirect && toolCallback.getToolMetadata().returnDirect();
-			}
-
-			ToolCallingObservationContext observationContext = ToolCallingObservationContext.builder()
-				.toolDefinition(toolCallback.getToolDefinition())
-				.toolMetadata(toolCallback.getToolMetadata())
-				.toolCallArguments(toolInputArguments)
-				.build();
-
-			String toolCallResult = ToolCallingObservationDocumentation.TOOL_CALL
-				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-						this.observationRegistry)
-				.observe(() -> {
-					String toolResult;
-					try {
-						toolResult = toolCallback.call(toolInputArguments, toolContext);
-					}
-					catch (ToolExecutionException ex) {
-						toolResult = this.toolExecutionExceptionProcessor.process(ex);
-					}
-					observationContext.setToolCallResult(toolResult);
-					return toolResult;
-				});
-
-			toolResponses.add(new ToolResponseMessage.ToolResponse(toolCall.id(), toolName,
-					toolCallResult != null ? toolCallResult : ""));
+		else {
+			toolCallbacks = List.of();
 		}
 
-		return new InternalToolExecutionResult(new ToolResponseMessage(toolResponses, Map.of()), returnDirect);
+		final List<AssistantMessage.ToolCall> toolCalls = assistantMessage.getToolCalls();
+		if (toolCalls.isEmpty()) {
+			return Mono.just(new InternalToolExecutionResult(new ToolResponseMessage(List.of(), Map.of()), false));
+		}
+
+		// Execute all tool calls in parallel
+		return Flux.fromIterable(toolCalls)
+			.flatMap(toolCall -> executeToolCallReactively(toolCall, toolCallbacks, toolContext))
+			.collectList()
+			.map(toolResponses -> {
+				// Determine returnDirect based on all tool callbacks
+				Boolean returnDirect = null;
+				for (AssistantMessage.ToolCall toolCall : toolCalls) {
+					ToolCallback toolCallback = findToolCallback(toolCall.name(), toolCallbacks);
+					if (toolCallback != null) {
+						if (returnDirect == null) {
+							returnDirect = toolCallback.getToolMetadata().returnDirect();
+						}
+						else {
+							returnDirect = returnDirect && toolCallback.getToolMetadata().returnDirect();
+						}
+					}
+				}
+				return new InternalToolExecutionResult(new ToolResponseMessage(toolResponses, Map.of()),
+						returnDirect != null ? returnDirect : false);
+			});
+	}
+
+	/**
+	 * Execute a single tool call reactively.
+	 */
+	private Mono<ToolResponseMessage.ToolResponse> executeToolCallReactively(AssistantMessage.ToolCall toolCall,
+			List<ToolCallback> toolCallbacks, ToolContext toolContext) {
+
+		logger.debug("Executing tool call reactively: {}", toolCall.name());
+
+		String toolName = toolCall.name();
+		String toolInputArguments = toolCall.arguments();
+
+		ToolCallback toolCallback = findToolCallback(toolName, toolCallbacks);
+
+		if (toolCallback == null) {
+			return Mono.error(new IllegalStateException("No ToolCallback found for tool name: " + toolName));
+		}
+
+		ToolCallingObservationContext observationContext = ToolCallingObservationContext.builder()
+			.toolDefinition(toolCallback.getToolDefinition())
+			.toolMetadata(toolCallback.getToolMetadata())
+			.toolCallArguments(toolInputArguments)
+			.build();
+
+		return toolCallback.call(toolInputArguments, toolContext)
+			.onErrorResume(ToolExecutionException.class,
+					ex -> Mono.just(this.toolExecutionExceptionProcessor.process(ex)))
+			.doOnNext(observationContext::setToolCallResult)
+			.map(toolCallResult -> new ToolResponseMessage.ToolResponse(toolCall.id(), toolName,
+					toolCallResult != null ? toolCallResult : ""))
+			.doOnNext(response -> logger.debug("Tool call completed: {} -> {}", toolName, response.responseData()));
+	}
+
+	/**
+	 * Find a tool callback by name from the provided callbacks or resolver.
+	 */
+	private ToolCallback findToolCallback(String toolName, List<ToolCallback> toolCallbacks) {
+		return toolCallbacks.stream()
+			.filter(tool -> toolName.equals(tool.getToolDefinition().name()))
+			.findFirst()
+			.orElseGet(() -> this.toolCallbackResolver.resolve(toolName));
 	}
 
 	private List<Message> buildConversationHistoryAfterToolExecution(List<Message> previousMessages,

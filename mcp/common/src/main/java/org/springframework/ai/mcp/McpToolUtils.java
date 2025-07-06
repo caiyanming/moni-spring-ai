@@ -172,8 +172,10 @@ public final class McpToolUtils {
 
 		return new McpServerFeatures.SyncToolSpecification(tool, (exchange, request) -> {
 			try {
-				String callResult = toolCallback.call(ModelOptionsUtils.toJsonString(request),
-						new ToolContext(Map.of(TOOL_CONTEXT_MCP_EXCHANGE_KEY, exchange)));
+				String callResult = toolCallback
+					.call(ModelOptionsUtils.toJsonString(request),
+							new ToolContext(Map.of(TOOL_CONTEXT_MCP_EXCHANGE_KEY, exchange)))
+					.block();
 				if (mimeType != null && mimeType.toString().startsWith("image")) {
 					return new McpSchema.CallToolResult(List
 						.of(new McpSchema.ImageContent(List.of(Role.ASSISTANT), null, callResult, mimeType.toString())),

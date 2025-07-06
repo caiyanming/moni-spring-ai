@@ -152,77 +152,83 @@ public class DeepSeekChatModel implements ChatModel {
 	}
 
 	public ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
+		return internalCallReactive(prompt, previousChatResponse).block();
+	}
 
-		ChatCompletionRequest request = createRequest(prompt, false);
+	public Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse previousChatResponse) {
+		return Mono.fromCallable(() -> {
+			ChatCompletionRequest request = createRequest(prompt, false);
 
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(prompt)
-			.provider(DeepSeekConstants.PROVIDER_NAME)
-			.build();
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(prompt)
+				.provider(DeepSeekConstants.PROVIDER_NAME)
+				.build();
 
-		ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
+			ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> {
 
-				ResponseEntity<ChatCompletion> completionEntity = this.retryTemplate
-					.execute(ctx -> this.deepSeekApi.chatCompletionEntity(request));
+					ResponseEntity<ChatCompletion> completionEntity = this.retryTemplate
+						.execute(ctx -> this.deepSeekApi.chatCompletionEntity(request));
 
-				var chatCompletion = completionEntity.getBody();
+					var chatCompletion = completionEntity.getBody();
 
-				if (chatCompletion == null) {
-					logger.warn("No chat completion returned for prompt: {}", prompt);
-					return new ChatResponse(List.of());
-				}
+					if (chatCompletion == null) {
+						logger.warn("No chat completion returned for prompt: {}", prompt);
+						return new ChatResponse(List.of());
+					}
 
-				List<Choice> choices = chatCompletion.choices();
-				if (choices == null) {
-					logger.warn("No choices returned for prompt: {}", prompt);
-					return new ChatResponse(List.of());
-				}
+					List<Choice> choices = chatCompletion.choices();
+					if (choices == null) {
+						logger.warn("No choices returned for prompt: {}", prompt);
+						return new ChatResponse(List.of());
+					}
 
-				List<Generation> generations = choices.stream().map(choice -> {
-			// @formatter:off
-					Map<String, Object> metadata = Map.of(
-							"id", chatCompletion.id() != null ? chatCompletion.id() : "",
-							"role", choice.message().role() != null ? choice.message().role().name() : "",
-							"index", choice.index(),
-							"finishReason", choice.finishReason() != null ? choice.finishReason().name() : "");
-					// @formatter:on
-					return buildGeneration(choice, metadata);
-				}).toList();
+					List<Generation> generations = choices.stream().map(choice -> {
+				// @formatter:off
+						Map<String, Object> metadata = Map.of(
+								"id", chatCompletion.id() != null ? chatCompletion.id() : "",
+								"role", choice.message().role() != null ? choice.message().role().name() : "",
+								"index", choice.index(),
+								"finishReason", choice.finishReason() != null ? choice.finishReason().name() : "");
+						// @formatter:on
+						return buildGeneration(choice, metadata);
+					}).toList();
 
-				// Current usage
-				DeepSeekApi.Usage usage = completionEntity.getBody().usage();
-				Usage currentChatResponseUsage = usage != null ? getDefaultUsage(usage) : new EmptyUsage();
-				Usage accumulatedUsage = UsageCalculator.getCumulativeUsage(currentChatResponseUsage,
-						previousChatResponse);
-				ChatResponse chatResponse = new ChatResponse(generations,
-						from(completionEntity.getBody(), accumulatedUsage));
+					// Current usage
+					DeepSeekApi.Usage usage = completionEntity.getBody().usage();
+					Usage currentChatResponseUsage = usage != null ? getDefaultUsage(usage) : new EmptyUsage();
+					Usage accumulatedUsage = UsageCalculator.getCumulativeUsage(currentChatResponseUsage,
+							previousChatResponse);
+					ChatResponse chatResponse = new ChatResponse(generations,
+							from(completionEntity.getBody(), accumulatedUsage));
 
-				observationContext.setResponse(chatResponse);
+					observationContext.setResponse(chatResponse);
 
-				return chatResponse;
+					return chatResponse;
 
-			});
+				});
 
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(response)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
+				return this.toolCallingManager.executeToolCalls(prompt, response).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						// Return tool execution result directly to the client.
+						return Mono.just(ChatResponse.builder()
+							.from(response)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						// Send the tool execution result back to the model.
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						response);
-			}
-		}
 
-		return response;
+			return Mono.just(response);
+		}).flatMap(response -> response);
 	}
 
 	@Override
@@ -287,28 +293,18 @@ public class DeepSeekChatModel implements ChatModel {
 			// @formatter:off
 			Flux<ChatResponse> flux = chatResponse.flatMap(response -> {
 				if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-					// FIXME: bounded elastic needs to be used since tool calling
-					//  is currently only synchronous
-					return Flux.deferContextual((ctx) -> {
-						ToolExecutionResult toolExecutionResult;
-						try {
-							ToolCallReactiveContextHolder.setContext(ctx);
-							toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-						} finally {
-							ToolCallReactiveContextHolder.clearContext();
-						}
-						if (toolExecutionResult.returnDirect()) {
-							// Return tool execution result directly to the client.
-							return Flux.just(ChatResponse.builder().from(response)
-									.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-									.build());
-						}
-						else {
-							// Send the tool execution result back to the model.
-							return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-									response);
-						}
-					}).subscribeOn(Schedulers.boundedElastic());
+					// Fully reactive tool calling - no more bounded elastic needed!
+					return this.toolCallingManager.executeToolCalls(prompt, response)
+						.flatMapMany(toolExecutionResult -> {
+							if (toolExecutionResult.returnDirect()) {
+								return Flux.just(ChatResponse.builder().from(response)
+										.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+										.build());
+							} else {
+								return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+										response);
+							}
+						});
 				}
 				else {
 					return Flux.just(response);

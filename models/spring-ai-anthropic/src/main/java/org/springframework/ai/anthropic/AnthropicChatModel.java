@@ -175,52 +175,58 @@ public class AnthropicChatModel implements ChatModel {
 	}
 
 	public ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
-		ChatCompletionRequest request = createRequest(prompt, false);
+		return internalCallReactive(prompt, previousChatResponse).block();
+	}
 
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(prompt)
-			.provider(AnthropicApi.PROVIDER_NAME)
-			.build();
+	public Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse previousChatResponse) {
+		return Mono.fromCallable(() -> {
+			ChatCompletionRequest request = createRequest(prompt, false);
 
-		ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(prompt)
+				.provider(AnthropicApi.PROVIDER_NAME)
+				.build();
 
-				ResponseEntity<ChatCompletionResponse> completionEntity = this.retryTemplate.execute(
-						ctx -> this.anthropicApi.chatCompletionEntity(request, this.getAdditionalHttpHeaders(prompt)));
+			ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> {
 
-				AnthropicApi.ChatCompletionResponse completionResponse = completionEntity.getBody();
-				AnthropicApi.Usage usage = completionResponse.usage();
+					ResponseEntity<ChatCompletionResponse> completionEntity = this.retryTemplate
+						.execute(ctx -> this.anthropicApi.chatCompletionEntity(request,
+								this.getAdditionalHttpHeaders(prompt)));
 
-				Usage currentChatResponseUsage = usage != null ? this.getDefaultUsage(completionResponse.usage())
-						: new EmptyUsage();
-				Usage accumulatedUsage = UsageCalculator.getCumulativeUsage(currentChatResponseUsage,
-						previousChatResponse);
+					AnthropicApi.ChatCompletionResponse completionResponse = completionEntity.getBody();
+					AnthropicApi.Usage usage = completionResponse.usage();
 
-				ChatResponse chatResponse = toChatResponse(completionEntity.getBody(), accumulatedUsage);
-				observationContext.setResponse(chatResponse);
+					Usage currentChatResponseUsage = usage != null ? this.getDefaultUsage(completionResponse.usage())
+							: new EmptyUsage();
+					Usage accumulatedUsage = UsageCalculator.getCumulativeUsage(currentChatResponseUsage,
+							previousChatResponse);
 
-				return chatResponse;
-			});
+					ChatResponse chatResponse = toChatResponse(completionEntity.getBody(), accumulatedUsage);
+					observationContext.setResponse(chatResponse);
 
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(response)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+					return chatResponse;
+				});
+
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
+				return this.toolCallingManager.executeToolCalls(prompt, response).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						return Mono.just(ChatResponse.builder()
+							.from(response)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						response);
-			}
-		}
 
-		return response;
+			return Mono.just(response);
+		}).flatMap(response -> response);
 	}
 
 	private DefaultUsage getDefaultUsage(AnthropicApi.Usage usage) {
@@ -264,29 +270,21 @@ public class AnthropicChatModel implements ChatModel {
 				if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), chatResponse)) {
 
 					if (chatResponse.hasFinishReasons(Set.of("tool_use"))) {
-						// FIXME: bounded elastic needs to be used since tool calling
-						//  is currently only synchronous
-						return Flux.deferContextual((ctx) -> {
-							// TODO: factor out the tool execution logic with setting context into a uitlity.
-							ToolExecutionResult toolExecutionResult;
-							try {
-								ToolCallReactiveContextHolder.setContext(ctx);
-								toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse);
-							} finally {
-								ToolCallReactiveContextHolder.clearContext();
-							}
-							if (toolExecutionResult.returnDirect()) {
-								// Return tool execution result directly to the client.
-								return Flux.just(ChatResponse.builder().from(chatResponse)
-									.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-									.build());
-							}
-							else {
-								// Send the tool execution result back to the model.
-								return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-										chatResponse);
-							}
-						}).subscribeOn(Schedulers.boundedElastic());
+						// Fully reactive tool calling - no more bounded elastic needed!
+						return this.toolCallingManager.executeToolCalls(prompt, chatResponse)
+							.flatMapMany(toolExecutionResult -> {
+								if (toolExecutionResult.returnDirect()) {
+									// Return tool execution result directly to the client.
+									return Flux.just(ChatResponse.builder().from(chatResponse)
+										.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+										.build());
+								}
+								else {
+									// Send the tool execution result back to the model.
+									return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+											chatResponse);
+								}
+							});
 
 					} else {						
 						return Mono.empty();

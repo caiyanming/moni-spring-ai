@@ -50,6 +50,7 @@ import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccess
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -394,56 +395,61 @@ public class VertexAiGeminiChatModel implements ChatModel, DisposableBean {
 	}
 
 	private ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
+		return internalCallReactive(prompt, previousChatResponse).block();
+	}
 
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(prompt)
-			.provider(VertexAiGeminiConstants.PROVIDER_NAME)
-			.build();
+	private Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse previousChatResponse) {
+		return Mono.fromCallable(() -> {
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(prompt)
+				.provider(VertexAiGeminiConstants.PROVIDER_NAME)
+				.build();
 
-		ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> this.retryTemplate.execute(context -> {
+			ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> this.retryTemplate.execute(context -> {
 
-				var geminiRequest = createGeminiRequest(prompt);
+					var geminiRequest = createGeminiRequest(prompt);
 
-				GenerateContentResponse generateContentResponse = this.getContentResponse(geminiRequest);
+					GenerateContentResponse generateContentResponse = this.getContentResponse(geminiRequest);
 
-				List<Generation> generations = generateContentResponse.getCandidatesList()
-					.stream()
-					.map(this::responseCandidateToGeneration)
-					.flatMap(List::stream)
-					.toList();
+					List<Generation> generations = generateContentResponse.getCandidatesList()
+						.stream()
+						.map(this::responseCandidateToGeneration)
+						.flatMap(List::stream)
+						.toList();
 
-				GenerateContentResponse.UsageMetadata usage = generateContentResponse.getUsageMetadata();
-				Usage currentUsage = (usage != null)
-						? new DefaultUsage(usage.getPromptTokenCount(), usage.getCandidatesTokenCount())
-						: new EmptyUsage();
-				Usage cumulativeUsage = UsageCalculator.getCumulativeUsage(currentUsage, previousChatResponse);
-				ChatResponse chatResponse = new ChatResponse(generations, toChatResponseMetadata(cumulativeUsage));
+					GenerateContentResponse.UsageMetadata usage = generateContentResponse.getUsageMetadata();
+					Usage currentUsage = (usage != null)
+							? new DefaultUsage(usage.getPromptTokenCount(), usage.getCandidatesTokenCount())
+							: new EmptyUsage();
+					Usage cumulativeUsage = UsageCalculator.getCumulativeUsage(currentUsage, previousChatResponse);
+					ChatResponse chatResponse = new ChatResponse(generations, toChatResponseMetadata(cumulativeUsage));
 
-				observationContext.setResponse(chatResponse);
-				return chatResponse;
-			}));
+					observationContext.setResponse(chatResponse);
+					return chatResponse;
+				}));
 
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(response)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
+				return this.toolCallingManager.executeToolCalls(prompt, response).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						// Return tool execution result directly to the client.
+						return Mono.just(ChatResponse.builder()
+							.from(response)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						// Send the tool execution result back to the model.
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						response);
-			}
-		}
 
-		return response;
-
+			return Mono.just(response);
+		}).flatMap(response -> response);
 	}
 
 	Prompt buildRequestPrompt(Prompt prompt) {
@@ -540,27 +546,17 @@ public class VertexAiGeminiChatModel implements ChatModel, DisposableBean {
 				// @formatter:off
 				Flux<ChatResponse> flux = chatResponseFlux.flatMap(response -> {
 					if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-						// FIXME: bounded elastic needs to be used since tool calling
-						//  is currently only synchronous
-						return Flux.deferContextual((ctx) -> {
-							ToolExecutionResult toolExecutionResult;
-							try {
-								ToolCallReactiveContextHolder.setContext(ctx);
-								toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-							} finally {
-								ToolCallReactiveContextHolder.clearContext();
-							}
-							if (toolExecutionResult.returnDirect()) {
-								// Return tool execution result directly to the client.
-								return Flux.just(ChatResponse.builder().from(response)
-										.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-										.build());
-							}
-							else {
-								// Send the tool execution result back to the model.
-								return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
-							}
-						}).subscribeOn(Schedulers.boundedElastic());
+						// Fully reactive tool calling - no more bounded elastic needed!
+						return this.toolCallingManager.executeToolCalls(prompt, response)
+							.flatMapMany(toolExecutionResult -> {
+								if (toolExecutionResult.returnDirect()) {
+									return Flux.just(ChatResponse.builder().from(response)
+											.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+											.build());
+								} else {
+									return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+								}
+							});
 					}
 					else {
 						return Flux.just(response);

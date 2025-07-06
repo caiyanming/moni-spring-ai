@@ -19,6 +19,8 @@ package org.springframework.ai.mistralai;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+
+import reactor.core.publisher.Mono;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 
 import org.springframework.ai.chat.prompt.Prompt;
@@ -116,8 +118,8 @@ public class MistralAiChatCompletionRequestTest {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			return "Mission accomplished!";
+		public Mono<String> call(String toolInput) {
+			return Mono.just("Mission accomplished!");
 		}
 
 	}

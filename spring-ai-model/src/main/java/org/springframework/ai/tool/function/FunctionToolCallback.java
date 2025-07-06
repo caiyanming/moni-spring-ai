@@ -24,6 +24,7 @@ import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -88,22 +89,24 @@ public class FunctionToolCallback<I, O> implements ToolCallback {
 	}
 
 	@Override
-	public String call(String toolInput) {
+	public Mono<String> call(String toolInput) {
 		return call(toolInput, null);
 	}
 
 	@Override
-	public String call(String toolInput, @Nullable ToolContext toolContext) {
-		Assert.hasText(toolInput, "toolInput cannot be null or empty");
+	public Mono<String> call(String toolInput, @Nullable ToolContext toolContext) {
+		return Mono.fromCallable(() -> {
+			Assert.hasText(toolInput, "toolInput cannot be null or empty");
 
-		logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
+			logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
 
-		I request = JsonParser.fromJson(toolInput, this.toolInputType);
-		O response = this.toolFunction.apply(request, toolContext);
+			I request = JsonParser.fromJson(toolInput, this.toolInputType);
+			O response = this.toolFunction.apply(request, toolContext);
 
-		logger.debug("Successful execution of tool: {}", this.toolDefinition.name());
+			logger.debug("Successful execution of tool: {}", this.toolDefinition.name());
 
-		return this.toolCallResultConverter.convert(response, null);
+			return this.toolCallResultConverter.convert(response, null);
+		});
 	}
 
 	@Override

@@ -29,6 +29,7 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.retry.RetryUtils;
+import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -181,8 +182,8 @@ class OllamaChatRequestTests {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			return "Mission accomplished!";
+		public Mono<String> call(String toolInput) {
+			return Mono.just("Mission accomplished!");
 		}
 
 	}

@@ -688,8 +688,9 @@ public class OpenAiChatModelIT extends AbstractIT {
 		chatMemory.add(conversationId, chatResponse.getResult().getOutput());
 
 		while (chatResponse.hasToolCalls()) {
-			ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(promptWithMemory,
-					chatResponse);
+			ToolExecutionResult toolExecutionResult = toolCallingManager
+				.executeToolCalls(promptWithMemory, chatResponse)
+				.block();
 			chatMemory.add(conversationId, toolExecutionResult.conversationHistory()
 				.get(toolExecutionResult.conversationHistory().size() - 1));
 			promptWithMemory = new Prompt(chatMemory.get(conversationId), chatOptions);

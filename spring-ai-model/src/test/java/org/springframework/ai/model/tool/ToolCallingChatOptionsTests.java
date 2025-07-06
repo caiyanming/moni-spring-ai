@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -190,8 +191,8 @@ class ToolCallingChatOptionsTests {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			return "Mission accomplished!";
+		public Mono<String> call(String toolInput) {
+			return Mono.just("Mission accomplished!");
 		}
 
 	}

@@ -42,6 +42,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
+import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -77,7 +78,8 @@ class DefaultToolCallingManagerIT {
 					List.of(new AssistantMessage.ToolCall("toolA", "function", "toolA", "{}"))))))
 			.build();
 
-		ToolExecutionResult toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse);
+		ToolExecutionResult toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse)
+			.block();
 
 		assertThat(toolExecutionResult).isNotNull();
 
@@ -151,8 +153,8 @@ class DefaultToolCallingManagerIT {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			return "Mission accomplished!";
+		public Mono<String> call(String toolInput) {
+			return Mono.just("Mission accomplished!");
 		}
 
 	}

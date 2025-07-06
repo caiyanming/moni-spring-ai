@@ -34,6 +34,7 @@ import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccess
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 import reactor.core.publisher.Sinks.EmitFailureHandler;
 import reactor.core.scheduler.Schedulers;
@@ -218,47 +219,55 @@ public class BedrockProxyChatModel implements ChatModel {
 	}
 
 	private ChatResponse internalCall(Prompt prompt, ChatResponse perviousChatResponse) {
+		return internalCallReactive(prompt, perviousChatResponse).block();
+	}
 
-		ConverseRequest converseRequest = this.createRequest(prompt);
+	private Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse perviousChatResponse) {
+		return Mono.fromCallable(() -> {
+			ConverseRequest converseRequest = this.createRequest(prompt);
 
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(prompt)
-			.provider(AiProvider.BEDROCK_CONVERSE.value())
-			.build();
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(prompt)
+				.provider(AiProvider.BEDROCK_CONVERSE.value())
+				.build();
 
-		ChatResponse chatResponse = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
+			ChatResponse chatResponse = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> {
 
-				ConverseResponse converseResponse = this.bedrockRuntimeClient.converse(converseRequest);
+					ConverseResponse converseResponse = this.bedrockRuntimeClient.converse(converseRequest);
 
-				logger.debug("ConverseResponse: {}", converseResponse);
+					logger.debug("ConverseResponse: {}", converseResponse);
 
-				var response = this.toChatResponse(converseResponse, perviousChatResponse);
+					var response = this.toChatResponse(converseResponse, perviousChatResponse);
 
-				observationContext.setResponse(response);
+					observationContext.setResponse(response);
 
-				return response;
-			});
+					return response;
+				});
 
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), chatResponse)
-				&& chatResponse.hasFinishReasons(Set.of(StopReason.TOOL_USE.toString()))) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(chatResponse)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), chatResponse)
+					&& chatResponse.hasFinishReasons(Set.of(StopReason.TOOL_USE.toString()))) {
+				return this.toolCallingManager.executeToolCalls(prompt, chatResponse).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						// Return tool execution result directly to the client.
+						return Mono.just(ChatResponse.builder()
+							.from(chatResponse)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						// Send the tool execution result back to the model.
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+								chatResponse);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						chatResponse);
-			}
-		}
-		return chatResponse;
+
+			return Mono.just(chatResponse);
+		}).flatMap(response -> response);
 	}
 
 	@Override
@@ -680,32 +689,21 @@ public class BedrockProxyChatModel implements ChatModel {
 				if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), chatResponse)
 						&& chatResponse.hasFinishReasons(Set.of(StopReason.TOOL_USE.toString()))) {
 
-					// FIXME: bounded elastic needs to be used since tool calling
-					// is currently only synchronous
-					return Flux.deferContextual((ctx) -> {
-						ToolExecutionResult toolExecutionResult;
-						try {
-							ToolCallReactiveContextHolder.setContext(ctx);
-							toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse);
-						}
-						finally {
-							ToolCallReactiveContextHolder.clearContext();
-						}
-
-						if (toolExecutionResult.returnDirect()) {
-							// Return tool execution result directly to the client.
-							return Flux.just(ChatResponse.builder()
-								.from(chatResponse)
-								.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-								.build());
-						}
-						else {
-							// Send the tool execution result back to the model.
-							return this.internalStream(
-									new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-									chatResponse);
-						}
-					}).subscribeOn(Schedulers.boundedElastic());
+					// Fully reactive tool calling - no more bounded elastic needed!
+					return this.toolCallingManager.executeToolCalls(prompt, chatResponse)
+						.flatMapMany(toolExecutionResult -> {
+							if (toolExecutionResult.returnDirect()) {
+								return Flux.just(ChatResponse.builder()
+									.from(chatResponse)
+									.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+									.build());
+							}
+							else {
+								return this.internalStream(
+										new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+										chatResponse);
+							}
+						});
 				}
 				else {
 					return Flux.just(chatResponse);

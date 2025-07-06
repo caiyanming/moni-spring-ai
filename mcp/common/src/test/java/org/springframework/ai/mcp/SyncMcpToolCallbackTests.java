@@ -77,7 +77,7 @@ class SyncMcpToolCallbackTests {
 
 		SyncMcpToolCallback callback = new SyncMcpToolCallback(this.mcpClient, this.tool);
 
-		String response = callback.call("{\"param\":\"value\"}");
+		String response = callback.call("{\"param\":\"value\"}").block();
 
 		// Assert
 		assertThat(response).isNotNull();
@@ -94,7 +94,7 @@ class SyncMcpToolCallbackTests {
 
 		SyncMcpToolCallback callback = new SyncMcpToolCallback(this.mcpClient, this.tool);
 
-		String response = callback.call("{\"param\":\"value\"}", new ToolContext(Map.of("foo", "bar")));
+		String response = callback.call("{\"param\":\"value\"}", new ToolContext(Map.of("foo", "bar"))).block();
 
 		assertThat(response).isNotNull();
 	}
@@ -111,7 +111,8 @@ class SyncMcpToolCallbackTests {
 
 		SyncMcpToolCallback callback = new SyncMcpToolCallback(this.mcpClient, this.tool);
 
-		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}")).isInstanceOf(ToolExecutionException.class)
+		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}").block())
+			.isInstanceOf(ToolExecutionException.class)
 			.cause()
 			.isInstanceOf(IllegalStateException.class)
 			.hasMessage("Error calling tool: [TextContent[audience=null, priority=null, text=Some error data]]");
@@ -126,7 +127,8 @@ class SyncMcpToolCallbackTests {
 
 		SyncMcpToolCallback callback = new SyncMcpToolCallback(this.mcpClient, this.tool);
 
-		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}")).isInstanceOf(ToolExecutionException.class)
+		assertThatThrownBy(() -> callback.call("{\"param\":\"value\"}").block())
+			.isInstanceOf(ToolExecutionException.class)
 			.rootCause()
 			.hasMessage("Testing tool error");
 	}

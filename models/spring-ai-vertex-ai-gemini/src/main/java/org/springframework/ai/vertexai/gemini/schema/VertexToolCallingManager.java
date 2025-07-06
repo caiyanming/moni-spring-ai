@@ -19,6 +19,7 @@ package org.springframework.ai.vertexai.gemini.schema;
 import java.util.List;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
@@ -91,7 +92,7 @@ public class VertexToolCallingManager implements ToolCallingManager {
 	 * @return the result of executing the tool calls
 	 */
 	@Override
-	public ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
+	public Mono<ToolExecutionResult> executeToolCalls(Prompt prompt, ChatResponse chatResponse) {
 		return this.delegateToolCallingManager.executeToolCalls(prompt, chatResponse);
 	}
 

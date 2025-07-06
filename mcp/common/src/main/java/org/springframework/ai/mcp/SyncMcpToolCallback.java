@@ -24,6 +24,8 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.tool.ToolCallback;
@@ -110,33 +112,35 @@ public class SyncMcpToolCallback implements ToolCallback {
 	 * <li>Converts the tool's response content to a JSON string</li>
 	 * </ol>
 	 * @param functionInput the tool input as a JSON string
-	 * @return the tool's response as a JSON string
+	 * @return a Mono containing the tool's response as a JSON string
 	 */
 	@Override
-	public String call(String functionInput) {
-		Map<String, Object> arguments = ModelOptionsUtils.jsonToMap(functionInput);
+	public Mono<String> call(String functionInput) {
+		return Mono.fromCallable(() -> {
+			Map<String, Object> arguments = ModelOptionsUtils.jsonToMap(functionInput);
 
-		CallToolResult response;
-		try {
-			// Note that we use the original tool name here, not the adapted one from
-			// getToolDefinition
-			response = this.mcpClient.callTool(new CallToolRequest(this.tool.name(), arguments));
-		}
-		catch (Exception ex) {
-			logger.error("Exception while tool calling: ", ex);
-			throw new ToolExecutionException(this.getToolDefinition(), ex);
-		}
+			CallToolResult response;
+			try {
+				// Note that we use the original tool name here, not the adapted one from
+				// getToolDefinition
+				response = this.mcpClient.callTool(new CallToolRequest(this.tool.name(), arguments));
+			}
+			catch (Exception ex) {
+				logger.error("Exception while tool calling: ", ex);
+				throw new ToolExecutionException(this.getToolDefinition(), ex);
+			}
 
-		if (response.isError() != null && response.isError()) {
-			logger.error("Error calling tool: {}", response.content());
-			throw new ToolExecutionException(this.getToolDefinition(),
-					new IllegalStateException("Error calling tool: " + response.content()));
-		}
-		return ModelOptionsUtils.toJsonString(response.content());
+			if (response.isError() != null && response.isError()) {
+				logger.error("Error calling tool: {}", response.content());
+				throw new ToolExecutionException(this.getToolDefinition(),
+						new IllegalStateException("Error calling tool: " + response.content()));
+			}
+			return ModelOptionsUtils.toJsonString(response.content());
+		});
 	}
 
 	@Override
-	public String call(String toolArguments, ToolContext toolContext) {
+	public Mono<String> call(String toolArguments, ToolContext toolContext) {
 		// ToolContext is not supported by the MCP tools
 		return this.call(toolArguments);
 	}

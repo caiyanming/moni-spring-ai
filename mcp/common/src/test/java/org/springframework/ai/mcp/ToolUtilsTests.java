@@ -32,6 +32,7 @@ import io.modelcontextprotocol.spec.McpSchema.ListToolsResult;
 import io.modelcontextprotocol.spec.McpSchema.TextContent;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import org.springframework.ai.tool.ToolCallback;
@@ -200,7 +201,7 @@ class ToolUtilsTests {
 			.inputSchema("{}")
 			.build();
 		when(callback.getToolDefinition()).thenReturn(definition);
-		when(callback.call(anyString(), any())).thenReturn(result);
+		when(callback.call(anyString(), any())).thenReturn(Mono.just(result));
 		return callback;
 	}
 
@@ -212,7 +213,7 @@ class ToolUtilsTests {
 			.inputSchema("{}")
 			.build();
 		when(callback.getToolDefinition()).thenReturn(definition);
-		when(callback.call(anyString(), any())).thenThrow(error);
+		when(callback.call(anyString(), any())).thenReturn(Mono.error(error));
 		return callback;
 	}
 

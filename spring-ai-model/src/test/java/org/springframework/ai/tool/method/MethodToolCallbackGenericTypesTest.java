@@ -61,7 +61,7 @@ class MethodToolCallbackGenericTypesTest {
 				""";
 
 		// Call the tool
-		String result = callback.call(toolInput);
+		String result = callback.call(toolInput).block();
 
 		// Verify the result
 		assertThat(result).isEqualTo("3 strings processed: [one, two, three]");
@@ -95,7 +95,7 @@ class MethodToolCallbackGenericTypesTest {
 				""";
 
 		// Call the tool
-		String result = callback.call(toolInput);
+		String result = callback.call(toolInput).block();
 
 		// Verify the result
 		assertThat(result).isEqualTo("3 entries processed: {one=1, two=2, three=3}");
@@ -132,7 +132,7 @@ class MethodToolCallbackGenericTypesTest {
 				""";
 
 		// Call the tool
-		String result = callback.call(toolInput);
+		String result = callback.call(toolInput).block();
 
 		// Verify the result
 		assertThat(result).isEqualTo("2 maps processed: [{a=1, b=2}, {c=3, d=4}]");
@@ -167,7 +167,7 @@ class MethodToolCallbackGenericTypesTest {
 		ToolContext toolContext = new ToolContext(Map.of("foo", "bar"));
 
 		// Call the tool
-		String result = callback.call(toolInput, toolContext);
+		String result = callback.call(toolInput, toolContext).block();
 
 		// Verify the result
 		assertThat(result).isEqualTo("1 entries processed {foo=bar}");

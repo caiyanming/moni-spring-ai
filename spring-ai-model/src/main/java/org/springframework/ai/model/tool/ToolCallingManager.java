@@ -21,6 +21,7 @@ import java.util.List;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import reactor.core.publisher.Mono;
 
 /**
  * Service responsible for managing the tool calling process for a chat model.
@@ -36,9 +37,10 @@ public interface ToolCallingManager {
 	List<ToolDefinition> resolveToolDefinitions(ToolCallingChatOptions chatOptions);
 
 	/**
-	 * Execute the tool calls requested by the model.
+	 * Execute the tool calls requested by the model reactively. This is the primary
+	 * method for reactive tool execution.
 	 */
-	ToolExecutionResult executeToolCalls(Prompt prompt, ChatResponse chatResponse);
+	Mono<ToolExecutionResult> executeToolCalls(Prompt prompt, ChatResponse chatResponse);
 
 	/**
 	 * Create a default {@link ToolCallingManager} builder.

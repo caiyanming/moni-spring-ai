@@ -29,6 +29,7 @@ import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccess
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -235,65 +236,73 @@ public class OllamaChatModel implements ChatModel {
 	}
 
 	private ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
+		return internalCallReactive(prompt, previousChatResponse).block();
+	}
 
-		OllamaApi.ChatRequest request = ollamaChatRequest(prompt, false);
+	private Mono<ChatResponse> internalCallReactive(Prompt prompt, ChatResponse previousChatResponse) {
+		return Mono.fromCallable(() -> {
+			OllamaApi.ChatRequest request = ollamaChatRequest(prompt, false);
 
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(prompt)
-			.provider(OllamaApiConstants.PROVIDER_NAME)
-			.build();
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(prompt)
+				.provider(OllamaApiConstants.PROVIDER_NAME)
+				.build();
 
-		ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
+			ChatResponse response = ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> {
 
-				OllamaApi.ChatResponse ollamaResponse = this.retryTemplate.execute(ctx -> this.chatApi.chat(request));
+					OllamaApi.ChatResponse ollamaResponse = this.retryTemplate
+						.execute(ctx -> this.chatApi.chat(request));
 
-				List<AssistantMessage.ToolCall> toolCalls = ollamaResponse.message().toolCalls() == null ? List.of()
-						: ollamaResponse.message()
+					List<AssistantMessage.ToolCall> toolCalls = ollamaResponse.message()
+						.toolCalls() == null ? List.of() : ollamaResponse.message()
 							.toolCalls()
 							.stream()
 							.map(toolCall -> new AssistantMessage.ToolCall("", "function", toolCall.function().name(),
 									ModelOptionsUtils.toJsonString(toolCall.function().arguments())))
 							.toList();
 
-				var assistantMessage = new AssistantMessage(ollamaResponse.message().content(), Map.of(), toolCalls);
+					var assistantMessage = new AssistantMessage(ollamaResponse.message().content(), Map.of(),
+							toolCalls);
 
-				ChatGenerationMetadata generationMetadata = ChatGenerationMetadata.NULL;
-				if (ollamaResponse.promptEvalCount() != null && ollamaResponse.evalCount() != null) {
-					generationMetadata = ChatGenerationMetadata.builder()
-						.finishReason(ollamaResponse.doneReason())
-						.build();
-				}
+					ChatGenerationMetadata generationMetadata = ChatGenerationMetadata.NULL;
+					if (ollamaResponse.promptEvalCount() != null && ollamaResponse.evalCount() != null) {
+						generationMetadata = ChatGenerationMetadata.builder()
+							.finishReason(ollamaResponse.doneReason())
+							.build();
+					}
 
-				var generator = new Generation(assistantMessage, generationMetadata);
-				ChatResponse chatResponse = new ChatResponse(List.of(generator),
-						from(ollamaResponse, previousChatResponse));
+					var generator = new Generation(assistantMessage, generationMetadata);
+					ChatResponse chatResponse = new ChatResponse(List.of(generator),
+							from(ollamaResponse, previousChatResponse));
 
-				observationContext.setResponse(chatResponse);
+					observationContext.setResponse(chatResponse);
 
-				return chatResponse;
+					return chatResponse;
 
-			});
+				});
 
-		if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-			var toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-			if (toolExecutionResult.returnDirect()) {
-				// Return tool execution result directly to the client.
-				return ChatResponse.builder()
-					.from(response)
-					.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-					.build();
+			if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
+				return this.toolCallingManager.executeToolCalls(prompt, response).flatMap(toolExecutionResult -> {
+					if (toolExecutionResult.returnDirect()) {
+						// Return tool execution result directly to the client.
+						return Mono.just(ChatResponse.builder()
+							.from(response)
+							.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+							.build());
+					}
+					else {
+						// Send the tool execution result back to the model.
+						return this.internalCallReactive(
+								new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()), response);
+					}
+				});
 			}
-			else {
-				// Send the tool execution result back to the model.
-				return this.internalCall(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-						response);
-			}
-		}
 
-		return response;
+			return Mono.just(response);
+		}).flatMap(response -> response); // Flatten the nested Mono
 	}
 
 	@Override
@@ -350,28 +359,21 @@ public class OllamaChatModel implements ChatModel {
 			// @formatter:off
 			Flux<ChatResponse> chatResponseFlux = chatResponse.flatMap(response -> {
 				if (this.toolExecutionEligibilityPredicate.isToolExecutionRequired(prompt.getOptions(), response)) {
-					// FIXME: bounded elastic needs to be used since tool calling
-					//  is currently only synchronous
-					return Flux.deferContextual((ctx) -> {
-						ToolExecutionResult toolExecutionResult;
-						try {
-							ToolCallReactiveContextHolder.setContext(ctx);
-							toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, response);
-						} finally {
-							ToolCallReactiveContextHolder.clearContext();
-						}
-						if (toolExecutionResult.returnDirect()) {
-							// Return tool execution result directly to the client.
-							return Flux.just(ChatResponse.builder().from(response)
-									.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
-									.build());
-						}
-						else {
-							// Send the tool execution result back to the model.
-							return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
-									response);
-						}
-					}).subscribeOn(Schedulers.boundedElastic());
+					// Fully reactive tool calling - no more bounded elastic needed!
+					return this.toolCallingManager.executeToolCalls(prompt, response)
+						.flatMapMany(toolExecutionResult -> {
+							if (toolExecutionResult.returnDirect()) {
+								// Return tool execution result directly to the client.
+								return Flux.just(ChatResponse.builder().from(response)
+										.generations(ToolExecutionResult.buildGenerations(toolExecutionResult))
+										.build());
+							}
+							else {
+								// Send the tool execution result back to the model.
+								return this.internalStream(new Prompt(toolExecutionResult.conversationHistory(), prompt.getOptions()),
+										response);
+							}
+						});
 				}
 				else {
 					return Flux.just(response);

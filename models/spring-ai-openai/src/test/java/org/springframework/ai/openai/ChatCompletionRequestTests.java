@@ -21,6 +21,8 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.SimpleApiKey;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
@@ -176,8 +178,8 @@ class ChatCompletionRequestTests {
 		}
 
 		@Override
-		public String call(String toolInput) {
-			return "Mission accomplished!";
+		public Mono<String> call(String toolInput) {
+			return Mono.just("Mission accomplished!");
 		}
 
 	}

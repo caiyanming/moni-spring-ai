@@ -21,6 +21,8 @@ import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
 import java.util.Map;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.model.tool.internal.ToolCallReactiveContextHolder;
@@ -105,10 +107,10 @@ public class AsyncMcpToolCallback implements ToolCallback {
 	 * <li>Converts the tool's response content to a JSON string</li>
 	 * </ol>
 	 * @param functionInput the tool input as a JSON string
-	 * @return the tool's response as a JSON string
+	 * @return a Mono containing the tool's response as a JSON string
 	 */
 	@Override
-	public String call(String functionInput) {
+	public Mono<String> call(String functionInput) {
 		Map<String, Object> arguments = ModelOptionsUtils.jsonToMap(functionInput);
 		// Note that we use the original tool name here, not the adapted one from
 		// getToolDefinition
@@ -121,11 +123,11 @@ public class AsyncMcpToolCallback implements ToolCallback {
 						new IllegalStateException("Error calling tool: " + response.content()));
 			}
 			return ModelOptionsUtils.toJsonString(response.content());
-		}).contextWrite(ctx -> ctx.putAll(ToolCallReactiveContextHolder.getContext())).block();
+		}).contextWrite(ctx -> ctx.putAll(ToolCallReactiveContextHolder.getContext()));
 	}
 
 	@Override
-	public String call(String toolArguments, ToolContext toolContext) {
+	public Mono<String> call(String toolArguments, ToolContext toolContext) {
 		// ToolContext is not supported by the MCP tools
 		return this.call(toolArguments);
 	}

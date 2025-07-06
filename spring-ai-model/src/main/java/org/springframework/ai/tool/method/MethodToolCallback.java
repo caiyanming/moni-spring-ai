@@ -26,6 +26,7 @@ import java.util.stream.Stream;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -90,29 +91,31 @@ public final class MethodToolCallback implements ToolCallback {
 	}
 
 	@Override
-	public String call(String toolInput) {
+	public Mono<String> call(String toolInput) {
 		return call(toolInput, null);
 	}
 
 	@Override
-	public String call(String toolInput, @Nullable ToolContext toolContext) {
-		Assert.hasText(toolInput, "toolInput cannot be null or empty");
+	public Mono<String> call(String toolInput, @Nullable ToolContext toolContext) {
+		return Mono.fromCallable(() -> {
+			Assert.hasText(toolInput, "toolInput cannot be null or empty");
 
-		logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
+			logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
 
-		validateToolContextSupport(toolContext);
+			validateToolContextSupport(toolContext);
 
-		Map<String, Object> toolArguments = extractToolArguments(toolInput);
+			Map<String, Object> toolArguments = extractToolArguments(toolInput);
 
-		Object[] methodArguments = buildMethodArguments(toolArguments, toolContext);
+			Object[] methodArguments = buildMethodArguments(toolArguments, toolContext);
 
-		Object result = callMethod(methodArguments);
+			Object result = callMethod(methodArguments);
 
-		logger.debug("Successful execution of tool: {}", this.toolDefinition.name());
+			logger.debug("Successful execution of tool: {}", this.toolDefinition.name());
 
-		Type returnType = this.toolMethod.getGenericReturnType();
+			Type returnType = this.toolMethod.getGenericReturnType();
 
-		return this.toolCallResultConverter.convert(result, returnType);
+			return this.toolCallResultConverter.convert(result, returnType);
+		});
 	}
 
 	private void validateToolContextSupport(@Nullable ToolContext toolContext) {
