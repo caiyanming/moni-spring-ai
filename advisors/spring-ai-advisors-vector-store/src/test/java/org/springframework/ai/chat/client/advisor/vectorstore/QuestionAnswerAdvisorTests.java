@@ -27,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -74,7 +75,7 @@ public class QuestionAnswerAdvisorTests {
 
 		// @formatter:off
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY"))),
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY"))),
 				ChatResponseMetadata.builder().id("678").model("model1").keyValue("key6", "value6").metadata(Map.of("key1", "value1")).promptMetadata(null).rateLimit(new RateLimit() {
 
 						@Override
@@ -107,7 +108,7 @@ public class QuestionAnswerAdvisorTests {
 							return Duration.ofSeconds(9);
 						}
 					}).usage(new DefaultUsage(6, 7))
-					.build()));
+					.build())));
 		// @formatter:on
 
 		given(this.vectorStore.similaritySearch(this.vectorSearchCaptor.capture()))
@@ -182,8 +183,8 @@ public class QuestionAnswerAdvisorTests {
 	@Test
 	public void qaAdvisorTakesUserTextParametersIntoAccountForSimilaritySearch() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-				.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY"))),
-						ChatResponseMetadata.builder().build()));
+				.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY"))),
+						ChatResponseMetadata.builder().build())));
 
 		given(this.vectorStore.similaritySearch(this.vectorSearchCaptor.capture()))
 				.willReturn(List.of(new Document("doc1"), new Document("doc2")));
@@ -212,8 +213,8 @@ public class QuestionAnswerAdvisorTests {
 	@Test
 	public void qaAdvisorTakesUserParameterizedUserMessagesIntoAccountForSimilaritySearch() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-				.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY"))),
-						ChatResponseMetadata.builder().build()));
+				.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY"))),
+						ChatResponseMetadata.builder().build())));
 
 		given(this.vectorStore.similaritySearch(this.vectorSearchCaptor.capture()))
 				.willReturn(List.of(new Document("doc1"), new Document("doc2")));

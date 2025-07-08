@@ -24,6 +24,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import io.micrometer.observation.ObservationRegistry;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.document.Document;
@@ -97,12 +99,18 @@ public class OllamaEmbeddingModel extends AbstractEmbeddingModel {
 	}
 
 	@Override
-	public float[] embed(Document document) {
+	public Mono<float[]> embed(Document document) {
 		return embed(document.getText());
 	}
 
 	@Override
-	public EmbeddingResponse call(EmbeddingRequest request) {
+	public Mono<EmbeddingResponse> call(EmbeddingRequest request) {
+		return Mono.fromCallable(() -> {
+			return callSync(request);
+		}).subscribeOn(Schedulers.boundedElastic());
+	}
+
+	private EmbeddingResponse callSync(EmbeddingRequest request) {
 		Assert.notEmpty(request.getInstructions(), "At least one text is required!");
 
 		// Before moving any further, build the final request EmbeddingRequest,

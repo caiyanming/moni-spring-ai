@@ -16,6 +16,8 @@
 
 package org.springframework.ai.embedding;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.model.Model;
 
 /**
@@ -27,7 +29,7 @@ import org.springframework.ai.model.Model;
 public interface DocumentEmbeddingModel extends Model<DocumentEmbeddingRequest, EmbeddingResponse> {
 
 	@Override
-	EmbeddingResponse call(DocumentEmbeddingRequest request);
+	Mono<EmbeddingResponse> call(DocumentEmbeddingRequest request);
 
 	int dimensions();
 

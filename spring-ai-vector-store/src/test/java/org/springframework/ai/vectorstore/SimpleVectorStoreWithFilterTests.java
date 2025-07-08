@@ -35,6 +35,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
+import reactor.core.publisher.Mono;
 import static org.springframework.ai.vectorstore.filter.Filter.ExpressionType.AND;
 import static org.springframework.ai.vectorstore.filter.Filter.ExpressionType.EQ;
 import static org.springframework.ai.vectorstore.filter.Filter.ExpressionType.GTE;
@@ -55,9 +57,10 @@ class SimpleVectorStoreWithFilterTests {
 	@BeforeEach
 	void setUp() {
 		this.mockEmbeddingModel = mock(EmbeddingModel.class);
-		when(this.mockEmbeddingModel.dimensions()).thenReturn(3);
-		when(this.mockEmbeddingModel.embed(any(String.class))).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
-		when(this.mockEmbeddingModel.embed(any(Document.class))).thenReturn(new float[] { 0.1f, 0.2f, 0.3f });
+		when(this.mockEmbeddingModel.dimensions()).thenReturn(Mono.just(3));
+		when(this.mockEmbeddingModel.embed(any(String.class))).thenReturn(Mono.just(new float[] { 0.1f, 0.2f, 0.3f }));
+		when(this.mockEmbeddingModel.embed(any(Document.class)))
+			.thenReturn(Mono.just(new float[] { 0.1f, 0.2f, 0.3f }));
 		this.vectorStore = SimpleVectorStore.builder(this.mockEmbeddingModel).build();
 	}
 

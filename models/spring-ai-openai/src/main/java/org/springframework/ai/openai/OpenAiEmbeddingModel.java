@@ -21,6 +21,8 @@ import java.util.List;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.metadata.EmptyUsage;
@@ -142,13 +144,13 @@ public class OpenAiEmbeddingModel extends AbstractEmbeddingModel {
 	}
 
 	@Override
-	public float[] embed(Document document) {
+	public Mono<float[]> embed(Document document) {
 		Assert.notNull(document, "Document must not be null");
 		return this.embed(document.getFormattedContent(this.metadataMode));
 	}
 
 	@Override
-	public EmbeddingResponse call(EmbeddingRequest request) {
+	public Mono<EmbeddingResponse> call(EmbeddingRequest request) {
 		// Before moving any further, build the final request EmbeddingRequest,
 		// merging runtime and default options.
 		EmbeddingRequest embeddingRequest = buildEmbeddingRequest(request);
@@ -160,33 +162,28 @@ public class OpenAiEmbeddingModel extends AbstractEmbeddingModel {
 			.provider(OpenAiApiConstants.PROVIDER_NAME)
 			.build();
 
-		return EmbeddingModelObservationDocumentation.EMBEDDING_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
-				EmbeddingList<OpenAiApi.Embedding> apiEmbeddingResponse = this.retryTemplate
-					.execute(ctx -> this.openAiApi.embeddings(apiRequest).getBody());
+		// Use reactive embeddings call - pure reactive implementation!
+		return this.openAiApi.embeddings(apiRequest).map(apiEmbeddingResponse -> {
+			if (apiEmbeddingResponse == null) {
+				logger.warn("No embeddings returned for request: {}", request);
+				return new EmbeddingResponse(List.of());
+			}
 
-				if (apiEmbeddingResponse == null) {
-					logger.warn("No embeddings returned for request: {}", request);
-					return new EmbeddingResponse(List.of());
-				}
+			OpenAiApi.Usage usage = apiEmbeddingResponse.usage();
+			Usage embeddingResponseUsage = usage != null ? getDefaultUsage(usage) : new EmptyUsage();
+			var metadata = new EmbeddingResponseMetadata(apiEmbeddingResponse.model(), embeddingResponseUsage);
 
-				OpenAiApi.Usage usage = apiEmbeddingResponse.usage();
-				Usage embeddingResponseUsage = usage != null ? getDefaultUsage(usage) : new EmptyUsage();
-				var metadata = new EmbeddingResponseMetadata(apiEmbeddingResponse.model(), embeddingResponseUsage);
+			List<Embedding> embeddings = apiEmbeddingResponse.data()
+				.stream()
+				.map(e -> new Embedding(e.embedding(), e.index()))
+				.toList();
 
-				List<Embedding> embeddings = apiEmbeddingResponse.data()
-					.stream()
-					.map(e -> new Embedding(e.embedding(), e.index()))
-					.toList();
+			EmbeddingResponse embeddingResponse = new EmbeddingResponse(embeddings, metadata);
 
-				EmbeddingResponse embeddingResponse = new EmbeddingResponse(embeddings, metadata);
+			observationContext.setResponse(embeddingResponse);
 
-				observationContext.setResponse(embeddingResponse);
-
-				return embeddingResponse;
-			});
+			return embeddingResponse;
+		});
 	}
 
 	private DefaultUsage getDefaultUsage(OpenAiApi.Usage usage) {

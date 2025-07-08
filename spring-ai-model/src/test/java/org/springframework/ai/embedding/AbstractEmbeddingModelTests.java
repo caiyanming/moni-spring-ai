@@ -24,6 +24,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvFileSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.document.Document;
 
@@ -49,32 +50,32 @@ public class AbstractEmbeddingModelTests {
 		EmbeddingModel dummy = new EmbeddingModel() {
 
 			@Override
-			public float[] embed(String text) {
-				return new float[] { 0.1f, 0.1f, 0.1f };
+			public Mono<float[]> embed(String text) {
+				return Mono.just(new float[] { 0.1f, 0.1f, 0.1f });
 			}
 
 			@Override
-			public float[] embed(Document document) {
+			public Mono<float[]> embed(Document document) {
 				throw new UnsupportedOperationException("Unimplemented method 'embed'");
 			}
 
 			@Override
-			public List<float[]> embed(List<String> texts) {
+			public Mono<List<float[]>> embed(List<String> texts) {
 				throw new UnsupportedOperationException("Unimplemented method 'embed'");
 			}
 
 			@Override
-			public EmbeddingResponse embedForResponse(List<String> texts) {
+			public Mono<EmbeddingResponse> embedForResponse(List<String> texts) {
 				throw new UnsupportedOperationException("Unimplemented method 'embedForResponse'");
 			}
 
 			@Override
-			public EmbeddingResponse call(EmbeddingRequest request) {
+			public Mono<EmbeddingResponse> call(EmbeddingRequest request) {
 				throw new UnsupportedOperationException("Unimplemented method 'call'");
 			}
 		};
 
-		assertThat(dummy.dimensions()).isEqualTo(3);
+		assertThat(dummy.dimensions().block()).isEqualTo(3);
 	}
 
 	@ParameterizedTest
@@ -88,7 +89,7 @@ public class AbstractEmbeddingModelTests {
 
 	@Test
 	public void testUnknownModelDimension() {
-		given(this.embeddingModel.embed(eq("Hello world!"))).willReturn(new float[] { 0.1f, 0.1f, 0.1f });
+		given(this.embeddingModel.embed(eq("Hello world!"))).willReturn(Mono.just(new float[] { 0.1f, 0.1f, 0.1f }));
 		assertThat(AbstractEmbeddingModel.dimensions(this.embeddingModel, "unknown_model", "Hello world!"))
 			.isEqualTo(3);
 	}

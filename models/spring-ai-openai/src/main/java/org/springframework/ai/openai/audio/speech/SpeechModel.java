@@ -16,6 +16,8 @@
 
 package org.springframework.ai.openai.audio.speech;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.model.Model;
 
 /**
@@ -37,9 +39,9 @@ public interface SpeechModel extends Model<SpeechPrompt, SpeechResponse> {
 	 * @param message the text message to be converted to audio
 	 * @return the resulting audio bytes
 	 */
-	default byte[] call(String message) {
+	default Mono<byte[]> call(String message) {
 		SpeechPrompt prompt = new SpeechPrompt(message);
-		return call(prompt).getResult().getOutput();
+		return call(prompt).map(response -> response.getResult().getOutput());
 	}
 
 	/**
@@ -48,6 +50,7 @@ public interface SpeechModel extends Model<SpeechPrompt, SpeechResponse> {
 	 * @param request the speech prompt containing the input text and other parameters
 	 * @return the speech response containing the generated audio
 	 */
-	SpeechResponse call(SpeechPrompt request);
+	@Override
+	Mono<SpeechResponse> call(SpeechPrompt request);
 
 }

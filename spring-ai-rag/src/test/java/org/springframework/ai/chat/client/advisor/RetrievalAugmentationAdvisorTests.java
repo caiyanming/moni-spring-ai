@@ -33,6 +33,7 @@ import org.springframework.ai.rag.Query;
 import org.springframework.ai.rag.advisor.RetrievalAugmentationAdvisor;
 import org.springframework.ai.rag.preretrieval.query.transformation.QueryTransformer;
 import org.springframework.ai.rag.retrieval.search.DocumentRetriever;
+import reactor.core.publisher.Mono;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -67,9 +68,9 @@ class RetrievalAugmentationAdvisorTests {
 		// Chat Model
 		var chatModel = mock(ChatModel.class);
 		var promptCaptor = ArgumentCaptor.forClass(Prompt.class);
-		given(chatModel.call(promptCaptor.capture())).willReturn(ChatResponse.builder()
+		given(chatModel.call(promptCaptor.capture())).willReturn(Mono.just(ChatResponse.builder()
 			.generations(List.of(new Generation(new AssistantMessage("Felix Felicis"))))
-			.build());
+			.build()));
 
 		// Document Retriever
 		var documentContext = List.of(Document.builder().id("1").text("doc1").build(),

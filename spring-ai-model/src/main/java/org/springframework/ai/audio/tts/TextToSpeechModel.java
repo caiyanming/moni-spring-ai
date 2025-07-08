@@ -16,6 +16,8 @@
 
 package org.springframework.ai.audio.tts;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.model.Model;
 import org.springframework.ai.model.ModelResult;
 
@@ -26,14 +28,21 @@ import org.springframework.ai.model.ModelResult;
  */
 public interface TextToSpeechModel extends Model<TextToSpeechPrompt, TextToSpeechResponse> {
 
-	default byte[] call(String text) {
+	/**
+	 * Converts text to speech and returns the audio data.
+	 * @param text the text to convert to speech.
+	 * @return Mono containing the audio data as byte array.
+	 */
+	default Mono<byte[]> call(String text) {
 		TextToSpeechPrompt prompt = new TextToSpeechPrompt(text);
-		ModelResult<byte[]> result = call(prompt).getResult();
-		return (result != null) ? result.getOutput() : new byte[0];
+		return call(prompt).map(response -> {
+			ModelResult<byte[]> result = response.getResult();
+			return (result != null) ? result.getOutput() : new byte[0];
+		});
 	}
 
 	@Override
-	TextToSpeechResponse call(TextToSpeechPrompt prompt);
+	Mono<TextToSpeechResponse> call(TextToSpeechPrompt prompt);
 
 	default TextToSpeechOptions getDefaultOptions() {
 		return TextToSpeechOptions.builder().build();

@@ -16,6 +16,8 @@
 
 package org.springframework.ai.moderation;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.model.Model;
 
 /**
@@ -30,6 +32,7 @@ import org.springframework.ai.model.Model;
 @FunctionalInterface
 public interface ModerationModel extends Model<ModerationPrompt, ModerationResponse> {
 
-	ModerationResponse call(ModerationPrompt request);
+	@Override
+	Mono<ModerationResponse> call(ModerationPrompt request);
 
 }

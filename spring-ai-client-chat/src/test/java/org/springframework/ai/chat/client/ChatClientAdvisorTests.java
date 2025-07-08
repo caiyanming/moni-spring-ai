@@ -26,6 +26,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -72,10 +73,10 @@ public class ChatClientAdvisorTests {
 
 		// Mock the chatModel to return predefined ChatResponse objects when called
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(
-					new ChatResponse(List.of(new Generation(new AssistantMessage("Hello John"))), chatResponseMetadata))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("Your name is John"))),
-					chatResponseMetadata));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Hello John"))),
+					chatResponseMetadata)))
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Your name is John"))),
+					chatResponseMetadata)));
 
 		// Initialize a message window chat memory to store conversation history
 		ChatMemory chatMemory = MessageWindowChatMemory.builder()

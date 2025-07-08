@@ -97,7 +97,7 @@ public class SummaryMetadataEnricher implements DocumentTransformer {
 
 			Prompt prompt = new PromptTemplate(this.summaryTemplate)
 				.create(Map.of(CONTEXT_STR_PLACEHOLDER, documentContext));
-			documentSummaries.add(this.chatModel.call(prompt).getResult().getOutput().getText());
+			documentSummaries.add(this.chatModel.call(prompt).block().getResult().getOutput().getText());
 		}
 
 		for (int i = 0; i < documentSummaries.size(); i++) {

@@ -40,6 +40,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
+import org.springframework.ai.chat.metadata.EmptyRateLimit;
 import org.springframework.ai.chat.metadata.EmptyUsage;
 import org.springframework.ai.chat.metadata.RateLimit;
 import org.springframework.ai.chat.metadata.Usage;
@@ -175,11 +176,11 @@ public class OpenAiChatModel implements ChatModel {
 	}
 
 	@Override
-	public ChatResponse call(Prompt prompt) {
+	public Mono<ChatResponse> call(Prompt prompt) {
 		// Before moving any further, build the final request Prompt,
 		// merging runtime and default options.
 		Prompt requestPrompt = buildRequestPrompt(prompt);
-		return this.internalCall(requestPrompt, null);
+		return this.internalCallReactive(requestPrompt, null);
 	}
 
 	public ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {
@@ -194,12 +195,8 @@ public class OpenAiChatModel implements ChatModel {
 			.provider(OpenAiApiConstants.PROVIDER_NAME)
 			.build();
 
-		// Convert the synchronous API call to reactive
-		return Mono.fromCallable(() -> {
-			return this.retryTemplate
-				.execute(ctx -> this.openAiApi.chatCompletionEntity(request, getAdditionalHttpHeaders(prompt)));
-		}).subscribeOn(Schedulers.boundedElastic()).map(completionEntity -> {
-			var chatCompletion = completionEntity.getBody();
+		// Pure reactive implementation - no more boundedElastic!
+		return this.openAiApi.chatCompletion(request, getAdditionalHttpHeaders(prompt)).map(chatCompletion -> {
 
 			if (chatCompletion == null) {
 				logger.warn("No chat completion returned for prompt: {}", prompt);
@@ -225,7 +222,10 @@ public class OpenAiChatModel implements ChatModel {
 				}).toList();
 				// @formatter:on
 
-			RateLimit rateLimit = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(completionEntity);
+			// In reactive mode, we don't have access to response headers for rate
+			// limiting
+			// This is a trade-off for pure reactive architecture
+			RateLimit rateLimit = new EmptyRateLimit();
 
 			// Current usage
 			OpenAiApi.Usage usage = chatCompletion.usage();

@@ -18,6 +18,8 @@ package org.springframework.ai.openai;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.audio.transcription.AudioTranscription;
 import org.springframework.ai.audio.transcription.AudioTranscriptionPrompt;
@@ -98,59 +100,61 @@ public class OpenAiAudioTranscriptionModel implements Model<AudioTranscriptionPr
 		this.retryTemplate = retryTemplate;
 	}
 
-	public String call(Resource audioResource) {
+	public Mono<String> call(Resource audioResource) {
 		AudioTranscriptionPrompt transcriptionRequest = new AudioTranscriptionPrompt(audioResource);
-		return call(transcriptionRequest).getResult().getOutput();
+		return call(transcriptionRequest).map(response -> response.getResult().getOutput());
 	}
 
 	@Override
-	public AudioTranscriptionResponse call(AudioTranscriptionPrompt transcriptionPrompt) {
+	public Mono<AudioTranscriptionResponse> call(AudioTranscriptionPrompt transcriptionPrompt) {
 
 		Resource audioResource = transcriptionPrompt.getInstructions();
 
 		OpenAiAudioApi.TranscriptionRequest request = createRequest(transcriptionPrompt);
 
-		if (request.responseFormat().isJsonType()) {
+		return Mono.fromCallable(() -> {
+			if (request.responseFormat().isJsonType()) {
 
-			ResponseEntity<StructuredResponse> transcriptionEntity = this.retryTemplate
-				.execute(ctx -> this.audioApi.createTranscription(request, StructuredResponse.class));
+				ResponseEntity<StructuredResponse> transcriptionEntity = this.retryTemplate
+					.execute(ctx -> this.audioApi.createTranscription(request, StructuredResponse.class));
 
-			var transcription = transcriptionEntity.getBody();
+				var transcription = transcriptionEntity.getBody();
 
-			if (transcription == null) {
-				logger.warn("No transcription returned for request: {}", audioResource);
-				return new AudioTranscriptionResponse(null);
+				if (transcription == null) {
+					logger.warn("No transcription returned for request: {}", audioResource);
+					return new AudioTranscriptionResponse(null);
+				}
+
+				AudioTranscription transcript = new AudioTranscription(transcription.text());
+
+				RateLimit rateLimits = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(transcriptionEntity);
+
+				return new AudioTranscriptionResponse(transcript,
+						OpenAiAudioTranscriptionResponseMetadata.from(transcriptionEntity.getBody())
+							.withRateLimit(rateLimits));
+
 			}
+			else {
 
-			AudioTranscription transcript = new AudioTranscription(transcription.text());
+				ResponseEntity<String> transcriptionEntity = this.retryTemplate
+					.execute(ctx -> this.audioApi.createTranscription(request, String.class));
 
-			RateLimit rateLimits = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(transcriptionEntity);
+				var transcription = transcriptionEntity.getBody();
 
-			return new AudioTranscriptionResponse(transcript,
-					OpenAiAudioTranscriptionResponseMetadata.from(transcriptionEntity.getBody())
-						.withRateLimit(rateLimits));
+				if (transcription == null) {
+					logger.warn("No transcription returned for request: {}", audioResource);
+					return new AudioTranscriptionResponse(null);
+				}
 
-		}
-		else {
+				AudioTranscription transcript = new AudioTranscription(transcription);
 
-			ResponseEntity<String> transcriptionEntity = this.retryTemplate
-				.execute(ctx -> this.audioApi.createTranscription(request, String.class));
+				RateLimit rateLimits = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(transcriptionEntity);
 
-			var transcription = transcriptionEntity.getBody();
-
-			if (transcription == null) {
-				logger.warn("No transcription returned for request: {}", audioResource);
-				return new AudioTranscriptionResponse(null);
+				return new AudioTranscriptionResponse(transcript,
+						OpenAiAudioTranscriptionResponseMetadata.from(transcriptionEntity.getBody())
+							.withRateLimit(rateLimits));
 			}
-
-			AudioTranscription transcript = new AudioTranscription(transcription);
-
-			RateLimit rateLimits = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(transcriptionEntity);
-
-			return new AudioTranscriptionResponse(transcript,
-					OpenAiAudioTranscriptionResponseMetadata.from(transcriptionEntity.getBody())
-						.withRateLimit(rateLimits));
-		}
+		}).subscribeOn(Schedulers.boundedElastic());
 	}
 
 	OpenAiAudioApi.TranscriptionRequest createRequest(AudioTranscriptionPrompt transcriptionPrompt) {

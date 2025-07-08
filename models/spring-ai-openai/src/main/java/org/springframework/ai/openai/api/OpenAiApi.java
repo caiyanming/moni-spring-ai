@@ -167,18 +167,51 @@ public class OpenAiApi {
 	 * @return Entity response with {@link ChatCompletion} as a body and HTTP status code
 	 * and headers.
 	 */
+	/**
+	 * @deprecated Use {@link #chatCompletion(ChatCompletionRequest)} instead
+	 */
+	@Deprecated
 	public ResponseEntity<ChatCompletion> chatCompletionEntity(ChatCompletionRequest chatRequest) {
 		return chatCompletionEntity(chatRequest, new LinkedMultiValueMap<>());
 	}
 
 	/**
-	 * Creates a model response for the given chat conversation.
+	 * Creates a model response for the given chat conversation. Pure reactive
+	 * implementation using WebClient.
 	 * @param chatRequest The chat completion request.
 	 * @param additionalHttpHeader Optional, additional HTTP headers to be added to the
 	 * request.
-	 * @return Entity response with {@link ChatCompletion} as a body and HTTP status code
-	 * and headers.
+	 * @return Mono of ChatCompletion response
 	 */
+	public Mono<ChatCompletion> chatCompletion(ChatCompletionRequest chatRequest,
+			MultiValueMap<String, String> additionalHttpHeader) {
+
+		Assert.notNull(chatRequest, "The request body can not be null.");
+		Assert.isTrue(!chatRequest.stream(), "Request must set the stream property to false.");
+		Assert.notNull(additionalHttpHeader, "The additional HTTP headers can not be null.");
+
+		// Pure reactive WebClient call - no blocking!
+		return this.webClient.post().uri(this.completionsPath).headers(headers -> {
+			headers.addAll(additionalHttpHeader);
+			addDefaultHeadersIfMissing(headers);
+		}).bodyValue(chatRequest).retrieve().bodyToMono(ChatCompletion.class);
+	}
+
+	/**
+	 * Creates a model response for the given chat conversation. Pure reactive
+	 * implementation using WebClient.
+	 * @param chatRequest The chat completion request.
+	 * @return Mono of ChatCompletion response
+	 */
+	public Mono<ChatCompletion> chatCompletion(ChatCompletionRequest chatRequest) {
+		return chatCompletion(chatRequest, new LinkedMultiValueMap<>());
+	}
+
+	/**
+	 * @deprecated Use {@link #chatCompletion(ChatCompletionRequest, MultiValueMap)}
+	 * instead
+	 */
+	@Deprecated
 	public ResponseEntity<ChatCompletion> chatCompletionEntity(ChatCompletionRequest chatRequest,
 			MultiValueMap<String, String> additionalHttpHeader) {
 
@@ -281,7 +314,49 @@ public class OpenAiApi {
 	 *
 	 * <pre>{@code List.of("text1", "text2", "text3") or List.of(List.of(1, 2, 3), List.of(3, 4, 5))} </pre>
 	 */
-	public <T> ResponseEntity<EmbeddingList<Embedding>> embeddings(EmbeddingRequest<T> embeddingRequest) {
+	/**
+	 * Creates embeddings for the given text inputs. Pure reactive implementation using
+	 * WebClient.
+	 * @param embeddingRequest The embedding request.
+	 * @return Mono of EmbeddingList response
+	 */
+	public <T> Mono<EmbeddingList<Embedding>> embeddings(EmbeddingRequest<T> embeddingRequest) {
+
+		Assert.notNull(embeddingRequest, "The request body can not be null.");
+
+		// Input text to embed, encoded as a string or array of tokens. To embed multiple
+		// inputs in a single
+		// request, pass an array of strings or array of token arrays.
+		Assert.notNull(embeddingRequest.input(), "The input can not be null.");
+		Assert.isTrue(embeddingRequest.input() instanceof String || embeddingRequest.input() instanceof List,
+				"The input must be either a String, or a List of Strings or List of List of integers.");
+
+		// The input must not exceed the max input tokens for the model (8192 tokens for
+		// text-embedding-ada-002), cannot
+		// be an empty string, and any array must be 2048 dimensions or less.
+		if (embeddingRequest.input() instanceof List list) {
+			Assert.isTrue(!CollectionUtils.isEmpty(list), "The input list can not be empty.");
+			Assert.isTrue(list.size() <= 2048, "The list must be 2048 dimensions or less");
+			Assert.isTrue(
+					list.get(0) instanceof String || list.get(0) instanceof Integer || list.get(0) instanceof List,
+					"The input must be either a String, or a List of Strings or list of list of integers.");
+		}
+
+		// Pure reactive WebClient call - no blocking!
+		return this.webClient.post()
+			.uri(this.embeddingsPath)
+			.headers(this::addDefaultHeadersIfMissing)
+			.bodyValue(embeddingRequest)
+			.retrieve()
+			.bodyToMono(new ParameterizedTypeReference<EmbeddingList<Embedding>>() {
+			});
+	}
+
+	/**
+	 * @deprecated Use {@link #embeddings(EmbeddingRequest)} instead
+	 */
+	@Deprecated
+	public <T> ResponseEntity<EmbeddingList<Embedding>> embeddingsEntity(EmbeddingRequest<T> embeddingRequest) {
 
 		Assert.notNull(embeddingRequest, "The request body can not be null.");
 

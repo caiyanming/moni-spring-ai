@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
@@ -691,7 +692,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -716,7 +717,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -738,7 +739,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		Prompt prompt = new Prompt(new SystemMessage("instructions"), new UserMessage("my question"));
@@ -762,7 +763,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		Prompt prompt = new Prompt(new SystemMessage("instructions"), new UserMessage("my question"));
@@ -788,7 +789,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		List<Message> messages = List.of(new SystemMessage("instructions"), new UserMessage("my question"));
@@ -831,7 +832,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage(null)))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage(null))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -861,7 +862,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage(null)))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage(null))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -882,13 +883,13 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("""
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("""
 					[
 						{ "name": "James Bond" },
 						{ "name": "Ethan Hunt" },
 						{ "name": "Jason Bourne" }
 					]
-					""")))));
+					"""))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -921,7 +922,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage(null)))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage(null))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -940,9 +941,9 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("""
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("""
 					James Bond, Ethan Hunt, Jason Bourne
-					""")))));
+					"""))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -973,7 +974,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage(null)))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage(null))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -991,9 +992,9 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("""
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("""
 					{ "name": "James Bond" }
-					""")))));
+					"""))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -1025,7 +1026,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage(null)))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage(null))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -1043,13 +1044,13 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("""
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("""
 					[
 						{ "name": "James Bond" },
 						{ "name": "Ethan Hunt" },
 						{ "name": "Jason Bourne" }
 					]
-					""")))));
+					"""))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -1092,9 +1093,9 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("""
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("""
 					James Bond, Ethan Hunt, Jason Bourne
-					""")))));
+					"""))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -1123,7 +1124,7 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage(null)))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage(null))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -1140,9 +1141,9 @@ class DefaultChatClientTests {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
 		given(chatModel.call(promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("""
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("""
 					{ "name": "James Bond" }
-					""")))));
+					"""))))));
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient

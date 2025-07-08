@@ -22,6 +22,8 @@ import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.aot.hint.RuntimeHints;
 import org.springframework.aot.hint.RuntimeHintsRegistrar;
 import org.springframework.context.annotation.ImportRuntimeHints;
@@ -67,7 +69,7 @@ public abstract class AbstractEmbeddingModel implements EmbeddingModel {
 		else {
 			// Determine the dimensions empirically.
 			// Generate an embedding and count the dimension size;
-			return embeddingModel.embed(dummyContent).length;
+			return embeddingModel.embed(dummyContent).block().length;
 		}
 	}
 
@@ -90,11 +92,12 @@ public abstract class AbstractEmbeddingModel implements EmbeddingModel {
 	}
 
 	@Override
-	public int dimensions() {
+	public Mono<Integer> dimensions() {
 		if (this.embeddingDimensions.get() < 0) {
-			this.embeddingDimensions.set(dimensions(this, "Test", "Hello World"));
+			return Mono.fromCallable(() -> dimensions(this, "Test", "Hello World"))
+				.doOnNext(this.embeddingDimensions::set);
 		}
-		return this.embeddingDimensions.get();
+		return Mono.just(this.embeddingDimensions.get());
 	}
 
 	static class Hints implements RuntimeHintsRegistrar {

@@ -26,6 +26,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -57,8 +58,8 @@ public class SimpleLoggerAdvisorTests {
 	@Test
 	public void callLogging(CapturedOutput output) {
 
-		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY")))));
+		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(
+				Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Your answer is ZXY"))))));
 
 		var loggerAdvisor = new SimpleLoggerAdvisor();
 

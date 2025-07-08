@@ -29,6 +29,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -74,7 +75,7 @@ public class ChatClientTest {
 	void defaultSystemText() {
 
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		given(this.chatModel.stream(this.promptCaptor.capture())).willReturn(Flux.generate(
 				() -> new ChatResponse(List.of(new Generation(new AssistantMessage("response")))), (state, sink) -> {
@@ -123,7 +124,7 @@ public class ChatClientTest {
 	void defaultSystemTextLambda() {
 
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		given(this.chatModel.stream(this.promptCaptor.capture())).willReturn(Flux.generate(
 				() -> new ChatResponse(List.of(new Generation(new AssistantMessage("response")))), (state, sink) -> {
@@ -202,7 +203,7 @@ public class ChatClientTest {
 		given(this.chatModel.getDefaultOptions()).willReturn(options);
 
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		given(this.chatModel.stream(this.promptCaptor.capture())).willReturn(Flux.generate(
 				() -> new ChatResponse(List.of(new Generation(new AssistantMessage("response")))), (state, sink) -> {
@@ -333,7 +334,7 @@ public class ChatClientTest {
 		given(this.chatModel.getDefaultOptions()).willReturn(options);
 
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		given(this.chatModel.stream(this.promptCaptor.capture())).willReturn(Flux.generate(
 				() -> new ChatResponse(List.of(new Generation(new AssistantMessage("response")))), (state, sink) -> {
@@ -423,7 +424,7 @@ public class ChatClientTest {
 	void defaultUserText() {
 
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).defaultUser("Default user text").build();
 
@@ -447,7 +448,7 @@ public class ChatClientTest {
 	@Test
 	void simpleUserPromptAsString() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		assertThat(ChatClient.builder(this.chatModel).build().prompt("User prompt").call().content())
 			.isEqualTo("response");
@@ -460,7 +461,7 @@ public class ChatClientTest {
 	@Test
 	void simpleUserPrompt() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		assertThat(ChatClient.builder(this.chatModel).build().prompt().user("User prompt").call().content())
 			.isEqualTo("response");
@@ -473,7 +474,7 @@ public class ChatClientTest {
 	@Test
 	void simpleUserPromptObject() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var media = new Media(MimeTypeUtils.IMAGE_JPEG,
 				new DefaultResourceLoader().getResource("classpath:/bikes.json"));
@@ -492,7 +493,7 @@ public class ChatClientTest {
 	@Test
 	void simpleSystemPrompt() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		String response = ChatClient.builder(this.chatModel)
 			.build()
@@ -513,7 +514,7 @@ public class ChatClientTest {
 	@Test
 	void complexCall() throws MalformedURLException {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var options = ToolCallingChatOptions.builder().build();
 		given(this.chatModel.getDefaultOptions()).willReturn(options);
@@ -586,7 +587,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithStringContent() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var content = chatClient.prompt("my question").call().content();
@@ -602,7 +603,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithMessages() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new SystemMessage("instructions"), UserMessage.builder().text("my question").build());
@@ -619,7 +620,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithStringContentAndUserText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var content = chatClient.prompt("my question").user("another question").call().content();
@@ -635,7 +636,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithHistoryAndUserText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new UserMessage("my question"), new AssistantMessage("your answer"));
@@ -652,7 +653,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithUserMessageAndUserText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new UserMessage("my question"));
@@ -669,7 +670,7 @@ public class ChatClientTest {
 	@Test
 	void whenMessagesWithHistoryAndUserText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new UserMessage("my question"), new AssistantMessage("your answer"));
@@ -685,7 +686,7 @@ public class ChatClientTest {
 	@Test
 	void whenMessagesWithUserMessageAndUserText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new UserMessage("my question"));
@@ -704,7 +705,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithMessagesAndSystemText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new UserMessage("my question"), new AssistantMessage("your answer"));
@@ -721,7 +722,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithSystemMessageAndNoSystemText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new SystemMessage("instructions"), new UserMessage("my question"));
@@ -738,7 +739,7 @@ public class ChatClientTest {
 	@Test
 	void whenPromptWithSystemMessageAndSystemText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new SystemMessage("instructions"), new UserMessage("my question"));
@@ -755,7 +756,7 @@ public class ChatClientTest {
 	@Test
 	void whenMessagesAndSystemText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new UserMessage("my question"), new AssistantMessage("your answer"));
@@ -777,7 +778,7 @@ public class ChatClientTest {
 	@Test
 	void whenMessagesWithSystemMessageAndNoSystemText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new SystemMessage("instructions"), new UserMessage("my question"));
@@ -794,7 +795,7 @@ public class ChatClientTest {
 	@Test
 	void whenMessagesWithSystemMessageAndSystemText() {
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("response")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new SystemMessage("instructions"), new UserMessage("my question"));

@@ -110,7 +110,7 @@ public class SimpleVectorStore extends AbstractObservationVectorStore {
 
 		for (Document document : documents) {
 			logger.info("Calling EmbeddingModel for document id = {}", document.getId());
-			float[] embedding = this.embeddingModel.embed(document);
+			float[] embedding = this.embeddingModel.embed(document).block();
 			SimpleVectorStoreContent storeContent = new SimpleVectorStoreContent(document.getId(), document.getText(),
 					document.getMetadata(), embedding);
 			this.store.put(document.getId(), storeContent);
@@ -234,14 +234,14 @@ public class SimpleVectorStore extends AbstractObservationVectorStore {
 	}
 
 	private float[] getUserQueryEmbedding(String query) {
-		return this.embeddingModel.embed(query);
+		return this.embeddingModel.embed(query).block();
 	}
 
 	@Override
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 
 		return VectorStoreObservationContext.builder(VectorStoreProvider.SIMPLE.value(), operationName)
-			.dimensions(this.embeddingModel.dimensions())
+			.dimensions(this.embeddingModel.dimensions().block())
 			.collectionName("in-memory-map")
 			.similarityMetric(VectorStoreSimilarityMetric.COSINE.value());
 	}

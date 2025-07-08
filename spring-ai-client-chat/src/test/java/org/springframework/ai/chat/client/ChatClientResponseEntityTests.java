@@ -25,6 +25,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -62,7 +63,7 @@ public class ChatClientResponseEntityTests {
 				{"name":"John", "age":30}
 				"""))), metadata);
 
-		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(chatResponse);
+		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(Mono.just(chatResponse));
 
 		ResponseEntity<ChatResponse, MyBean> responseEntity = ChatClient.builder(this.chatModel)
 			.build()
@@ -91,7 +92,7 @@ public class ChatClientResponseEntityTests {
 				]
 				"""))));
 
-		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(chatResponse);
+		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(Mono.just(chatResponse));
 
 		ResponseEntity<ChatResponse, List<MyBean>> responseEntity = ChatClient.builder(this.chatModel)
 			.build()
@@ -118,7 +119,7 @@ public class ChatClientResponseEntityTests {
 					{"name":"Max", "age":10},
 				"""))));
 
-		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(chatResponse);
+		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(Mono.just(chatResponse));
 
 		ResponseEntity<ChatResponse, Map<String, Object>> responseEntity = ChatClient.builder(this.chatModel)
 			.build()

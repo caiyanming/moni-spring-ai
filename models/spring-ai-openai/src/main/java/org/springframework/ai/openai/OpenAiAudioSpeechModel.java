@@ -19,6 +19,8 @@ package org.springframework.ai.openai;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.chat.metadata.RateLimit;
 import org.springframework.ai.openai.api.OpenAiAudioApi;
@@ -117,29 +119,31 @@ public class OpenAiAudioSpeechModel implements SpeechModel, StreamingSpeechModel
 	}
 
 	@Override
-	public byte[] call(String text) {
+	public Mono<byte[]> call(String text) {
 		SpeechPrompt speechRequest = new SpeechPrompt(text);
-		return call(speechRequest).getResult().getOutput();
+		return call(speechRequest).map(response -> response.getResult().getOutput());
 	}
 
 	@Override
-	public SpeechResponse call(SpeechPrompt speechPrompt) {
+	public Mono<SpeechResponse> call(SpeechPrompt speechPrompt) {
 
 		OpenAiAudioApi.SpeechRequest speechRequest = createRequest(speechPrompt);
 
-		ResponseEntity<byte[]> speechEntity = this.retryTemplate
-			.execute(ctx -> this.audioApi.createSpeech(speechRequest));
+		return Mono.fromCallable(() -> {
+			ResponseEntity<byte[]> speechEntity = this.retryTemplate
+				.execute(ctx -> this.audioApi.createSpeech(speechRequest));
 
-		var speech = speechEntity.getBody();
+			var speech = speechEntity.getBody();
 
-		if (speech == null) {
-			logger.warn("No speech response returned for speechRequest: {}", speechRequest);
-			return new SpeechResponse(new Speech(new byte[0]));
-		}
+			if (speech == null) {
+				logger.warn("No speech response returned for speechRequest: {}", speechRequest);
+				return new SpeechResponse(new Speech(new byte[0]));
+			}
 
-		RateLimit rateLimits = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(speechEntity);
+			RateLimit rateLimits = OpenAiResponseHeaderExtractor.extractAiResponseHeaders(speechEntity);
 
-		return new SpeechResponse(new Speech(speech), new OpenAiAudioSpeechResponseMetadata(rateLimits));
+			return new SpeechResponse(new Speech(speech), new OpenAiAudioSpeechResponseMetadata(rateLimits));
+		}).subscribeOn(Schedulers.boundedElastic());
 	}
 
 	/**

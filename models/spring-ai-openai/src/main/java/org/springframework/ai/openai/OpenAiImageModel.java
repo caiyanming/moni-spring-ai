@@ -21,6 +21,8 @@ import java.util.List;
 import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.image.Image;
 import org.springframework.ai.image.ImageGeneration;
@@ -125,7 +127,7 @@ public class OpenAiImageModel implements ImageModel {
 	}
 
 	@Override
-	public ImageResponse call(ImagePrompt imagePrompt) {
+	public Mono<ImageResponse> call(ImagePrompt imagePrompt) {
 		// Before moving any further, build the final request ImagePrompt,
 		// merging runtime and default options.
 		ImagePrompt requestImagePrompt = buildRequestImagePrompt(imagePrompt);
@@ -141,14 +143,16 @@ public class OpenAiImageModel implements ImageModel {
 			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
 					this.observationRegistry)
 			.observe(() -> {
-				ResponseEntity<OpenAiImageApi.OpenAiImageResponse> imageResponseEntity = this.retryTemplate
-					.execute(ctx -> this.openAiImageApi.createImage(imageRequest));
+				return Mono.fromCallable(() -> {
+					ResponseEntity<OpenAiImageApi.OpenAiImageResponse> imageResponseEntity = this.retryTemplate
+						.execute(ctx -> this.openAiImageApi.createImage(imageRequest));
 
-				ImageResponse imageResponse = convertResponse(imageResponseEntity, imageRequest);
+					ImageResponse imageResponse = convertResponse(imageResponseEntity, imageRequest);
 
-				observationContext.setResponse(imageResponse);
+					observationContext.setResponse(imageResponse);
 
-				return imageResponse;
+					return imageResponse;
+				}).subscribeOn(Schedulers.boundedElastic());
 			});
 	}
 

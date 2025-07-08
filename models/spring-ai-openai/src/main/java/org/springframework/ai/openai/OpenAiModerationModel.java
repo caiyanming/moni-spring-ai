@@ -21,6 +21,8 @@ import java.util.List;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.moderation.Categories;
@@ -76,29 +78,32 @@ public class OpenAiModerationModel implements ModerationModel {
 	}
 
 	@Override
-	public ModerationResponse call(ModerationPrompt moderationPrompt) {
-		return this.retryTemplate.execute(ctx -> {
+	public Mono<ModerationResponse> call(ModerationPrompt moderationPrompt) {
+		return Mono.fromCallable(() -> {
+			return this.retryTemplate.execute(ctx -> {
 
-			String instructions = moderationPrompt.getInstructions().getText();
+				String instructions = moderationPrompt.getInstructions().getText();
 
-			OpenAiModerationApi.OpenAiModerationRequest moderationRequest = new OpenAiModerationApi.OpenAiModerationRequest(
-					instructions);
+				OpenAiModerationApi.OpenAiModerationRequest moderationRequest = new OpenAiModerationApi.OpenAiModerationRequest(
+						instructions);
 
-			if (this.defaultOptions != null) {
-				moderationRequest = ModelOptionsUtils.merge(this.defaultOptions, moderationRequest,
-						OpenAiModerationApi.OpenAiModerationRequest.class);
-			}
+				if (this.defaultOptions != null) {
+					moderationRequest = ModelOptionsUtils.merge(this.defaultOptions, moderationRequest,
+							OpenAiModerationApi.OpenAiModerationRequest.class);
+				}
 
-			if (moderationPrompt.getOptions() != null) {
-				moderationRequest = ModelOptionsUtils.merge(toOpenAiModerationOptions(moderationPrompt.getOptions()),
-						moderationRequest, OpenAiModerationApi.OpenAiModerationRequest.class);
-			}
+				if (moderationPrompt.getOptions() != null) {
+					moderationRequest = ModelOptionsUtils.merge(
+							toOpenAiModerationOptions(moderationPrompt.getOptions()), moderationRequest,
+							OpenAiModerationApi.OpenAiModerationRequest.class);
+				}
 
-			ResponseEntity<OpenAiModerationApi.OpenAiModerationResponse> moderationResponseEntity = this.openAiModerationApi
-				.createModeration(moderationRequest);
+				ResponseEntity<OpenAiModerationApi.OpenAiModerationResponse> moderationResponseEntity = this.openAiModerationApi
+					.createModeration(moderationRequest);
 
-			return convertResponse(moderationResponseEntity, moderationRequest);
-		});
+				return convertResponse(moderationResponseEntity, moderationRequest);
+			});
+		}).subscribeOn(Schedulers.boundedElastic());
 	}
 
 	private ModerationResponse convertResponse(

@@ -28,6 +28,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -67,7 +68,7 @@ public class AdvisorsTests {
 		var mockAroundAdvisor2 = new MockAroundAdvisor("Advisor2", 1);
 
 		given(this.chatModel.call(this.promptCaptor.capture()))
-			.willReturn(new ChatResponse(List.of(new Generation(new AssistantMessage("Hello John")))));
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("Hello John"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel)
 			.defaultSystem("Default system text.")

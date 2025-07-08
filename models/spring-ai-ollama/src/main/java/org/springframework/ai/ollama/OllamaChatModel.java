@@ -228,7 +228,13 @@ public class OllamaChatModel implements ChatModel {
 	}
 
 	@Override
-	public ChatResponse call(Prompt prompt) {
+	public Mono<ChatResponse> call(Prompt prompt) {
+		return Mono.fromCallable(() -> {
+			return callSync(prompt);
+		}).subscribeOn(Schedulers.boundedElastic());
+	}
+
+	private ChatResponse callSync(Prompt prompt) {
 		// Before moving any further, build the final request Prompt,
 		// merging runtime and default options.
 		Prompt requestPrompt = buildRequestPrompt(prompt);

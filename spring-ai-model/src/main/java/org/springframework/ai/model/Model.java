@@ -16,12 +16,17 @@
 
 package org.springframework.ai.model;
 
+import reactor.core.publisher.Mono;
+
 /**
  * The Model interface provides a generic API for invoking AI models. It is designed to
  * handle the interaction with various types of AI models by abstracting the process of
  * sending requests and receiving responses. The interface uses Java generics to
  * accommodate different types of requests and responses, enhancing flexibility and
  * adaptability across different AI model implementations.
+ *
+ * <p>
+ * This interface is fully reactive, returning {@link Mono} for non-blocking operations.
  *
  * @param <TReq> the generic type of the request to the AI model
  * @param <TRes> the generic type of the response from the AI model
@@ -31,10 +36,10 @@ package org.springframework.ai.model;
 public interface Model<TReq extends ModelRequest<?>, TRes extends ModelResponse<?>> {
 
 	/**
-	 * Executes a method call to the AI model.
+	 * Executes a reactive method call to the AI model.
 	 * @param request the request object to be sent to the AI model
-	 * @return the response from the AI model
+	 * @return a {@link Mono} containing the response from the AI model
 	 */
-	TRes call(TReq request);
+	Mono<TRes> call(TReq request);
 
 }

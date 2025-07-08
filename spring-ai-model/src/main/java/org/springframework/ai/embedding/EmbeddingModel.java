@@ -19,6 +19,9 @@ package org.springframework.ai.embedding;
 import java.util.ArrayList;
 import java.util.List;
 
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.document.Document;
 import org.springframework.ai.model.Model;
 import org.springframework.util.Assert;
@@ -37,17 +40,16 @@ import org.springframework.util.Assert;
 public interface EmbeddingModel extends Model<EmbeddingRequest, EmbeddingResponse> {
 
 	@Override
-	EmbeddingResponse call(EmbeddingRequest request);
+	Mono<EmbeddingResponse> call(EmbeddingRequest request);
 
 	/**
 	 * Embeds the given text into a vector.
 	 * @param text the text to embed.
 	 * @return the embedded vector.
 	 */
-	default float[] embed(String text) {
+	default Mono<float[]> embed(String text) {
 		Assert.notNull(text, "Text must not be null");
-		List<float[]> response = this.embed(List.of(text));
-		return response.iterator().next();
+		return embed(List.of(text)).map(results -> results.iterator().next());
 	}
 
 	/**
@@ -55,20 +57,17 @@ public interface EmbeddingModel extends Model<EmbeddingRequest, EmbeddingRespons
 	 * @param document the document to embed.
 	 * @return the embedded vector.
 	 */
-	float[] embed(Document document);
+	Mono<float[]> embed(Document document);
 
 	/**
 	 * Embeds a batch of texts into vectors.
 	 * @param texts list of texts to embed.
-	 * @return list of embedded vectors.
+	 * @return Mono containing list of embedded vectors.
 	 */
-	default List<float[]> embed(List<String> texts) {
+	default Mono<List<float[]>> embed(List<String> texts) {
 		Assert.notNull(texts, "Texts must not be null");
 		return this.call(new EmbeddingRequest(texts, EmbeddingOptionsBuilder.builder().build()))
-			.getResults()
-			.stream()
-			.map(Embedding::getOutput)
-			.toList();
+			.map(response -> response.getResults().stream().map(Embedding::getOutput).toList());
 	}
 
 	/**
@@ -77,33 +76,34 @@ public interface EmbeddingModel extends Model<EmbeddingRequest, EmbeddingRespons
 	 * @param documents list of {@link Document}s.
 	 * @param options {@link EmbeddingOptions}.
 	 * @param batchingStrategy {@link BatchingStrategy}.
-	 * @return a list of float[] that represents the vectors for the incoming
-	 * {@link Document}s. The returned list is expected to be in the same order of the
-	 * {@link Document} list.
+	 * @return Mono containing a list of float[] that represents the vectors for the
+	 * incoming {@link Document}s. The returned list is expected to be in the same order
+	 * of the {@link Document} list.
 	 */
-	default List<float[]> embed(List<Document> documents, EmbeddingOptions options, BatchingStrategy batchingStrategy) {
+	default Mono<List<float[]>> embed(List<Document> documents, EmbeddingOptions options,
+			BatchingStrategy batchingStrategy) {
 		Assert.notNull(documents, "Documents must not be null");
-		List<float[]> embeddings = new ArrayList<>(documents.size());
 		List<List<Document>> batch = batchingStrategy.batch(documents);
-		for (List<Document> subBatch : batch) {
+		return Flux.fromIterable(batch).flatMapSequential(subBatch -> {
 			List<String> texts = subBatch.stream().map(Document::getText).toList();
 			EmbeddingRequest request = new EmbeddingRequest(texts, options);
-			EmbeddingResponse response = this.call(request);
-			for (int i = 0; i < subBatch.size(); i++) {
-				embeddings.add(response.getResults().get(i).getOutput());
-			}
-		}
-		Assert.isTrue(embeddings.size() == documents.size(),
-				"Embeddings must have the same number as that of the documents");
-		return embeddings;
+			return this.call(request)
+				.map(response -> response.getResults().stream().map(Embedding::getOutput).toList());
+		}).collectList().map(batches -> {
+			List<float[]> embeddings = new ArrayList<>();
+			batches.forEach(embeddings::addAll);
+			Assert.isTrue(embeddings.size() == documents.size(),
+					"Embeddings must have the same number as that of the documents");
+			return embeddings;
+		});
 	}
 
 	/**
 	 * Embeds a batch of texts into vectors and returns the {@link EmbeddingResponse}.
 	 * @param texts list of texts to embed.
-	 * @return the embedding response.
+	 * @return Mono containing the embedding response.
 	 */
-	default EmbeddingResponse embedForResponse(List<String> texts) {
+	default Mono<EmbeddingResponse> embedForResponse(List<String> texts) {
 		Assert.notNull(texts, "Texts must not be null");
 		return this.call(new EmbeddingRequest(texts, EmbeddingOptionsBuilder.builder().build()));
 	}
@@ -113,10 +113,10 @@ public interface EmbeddingModel extends Model<EmbeddingRequest, EmbeddingRespons
 	 * method will call the remote Embedding endpoint to get the dimensions of the
 	 * embedded vectors. If the dimensions are known ahead of time, it is recommended to
 	 * override this method.
-	 * @return the number of dimensions of the embedded vectors.
+	 * @return Mono containing the number of dimensions of the embedded vectors.
 	 */
-	default int dimensions() {
-		return embed("Test String").length;
+	default Mono<Integer> dimensions() {
+		return embed("Test String").map(vector -> vector.length);
 	}
 
 }

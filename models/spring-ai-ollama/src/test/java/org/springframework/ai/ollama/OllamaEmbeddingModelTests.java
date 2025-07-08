@@ -26,6 +26,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.embedding.EmbeddingOptionsBuilder;
 import org.springframework.ai.embedding.EmbeddingRequest;
@@ -57,9 +58,9 @@ public class OllamaEmbeddingModelTests {
 	public void options() {
 
 		given(this.ollamaApi.embed(this.embeddingsRequestCaptor.capture()))
-			.willReturn(new EmbeddingsResponse("RESPONSE_MODEL_NAME",
+			.willReturn(Mono.just(new EmbeddingsResponse("RESPONSE_MODEL_NAME",
 					List.of(new float[] { 1f, 2f, 3f }, new float[] { 4f, 5f, 6f }), 0L, 0L, 0))
-			.willReturn(new EmbeddingsResponse("RESPONSE_MODEL_NAME2",
+			.willReturn(Mono.just(new EmbeddingsResponse("RESPONSE_MODEL_NAME2",
 					List.of(new float[] { 7f, 8f, 9f }, new float[] { 10f, 11f, 12f }), 0L, 0L, 0));
 
 		// Tests default options

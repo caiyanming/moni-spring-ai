@@ -19,6 +19,7 @@ package org.springframework.ai.chat.model;
 import java.util.Arrays;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -26,22 +27,54 @@ import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.Model;
 
+/**
+ * The ChatModel interface provides a reactive API for chat-based AI model interactions.
+ * It extends the base {@link Model} interface with chat-specific functionality and
+ * streaming capabilities.
+ *
+ * <p>
+ * This interface is fully reactive, returning {@link Mono} or {@link Flux} for
+ * non-blocking operations.
+ *
+ * @author Mark Pollack
+ * @author Christian Tzolov
+ * @since 0.8.0
+ */
 public interface ChatModel extends Model<Prompt, ChatResponse>, StreamingChatModel {
 
-	default String call(String message) {
+	/**
+	 * Executes a reactive chat call with a simple string message.
+	 * @param message the user message string
+	 * @return a {@link Mono} containing the response text
+	 */
+	default Mono<String> call(String message) {
 		Prompt prompt = new Prompt(new UserMessage(message));
-		Generation generation = call(prompt).getResult();
-		return (generation != null) ? generation.getOutput().getText() : "";
+		return call(prompt).map(response -> {
+			Generation generation = response.getResult();
+			return (generation != null) ? generation.getOutput().getText() : "";
+		});
 	}
 
-	default String call(Message... messages) {
+	/**
+	 * Executes a reactive chat call with multiple messages.
+	 * @param messages the array of messages
+	 * @return a {@link Mono} containing the response text
+	 */
+	default Mono<String> call(Message... messages) {
 		Prompt prompt = new Prompt(Arrays.asList(messages));
-		Generation generation = call(prompt).getResult();
-		return (generation != null) ? generation.getOutput().getText() : "";
+		return call(prompt).map(response -> {
+			Generation generation = response.getResult();
+			return (generation != null) ? generation.getOutput().getText() : "";
+		});
 	}
 
+	/**
+	 * Executes a reactive chat call with a {@link Prompt}.
+	 * @param prompt the chat prompt
+	 * @return a {@link Mono} containing the {@link ChatResponse}
+	 */
 	@Override
-	ChatResponse call(Prompt prompt);
+	Mono<ChatResponse> call(Prompt prompt);
 
 	default ChatOptions getDefaultOptions() {
 		return ChatOptions.builder().build();

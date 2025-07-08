@@ -51,7 +51,7 @@ public final class ChatModelCallAdvisor implements CallAdvisor {
 
 		ChatClientRequest formattedChatClientRequest = augmentWithFormatInstructions(chatClientRequest);
 
-		ChatResponse chatResponse = this.chatModel.call(formattedChatClientRequest.prompt());
+		ChatResponse chatResponse = this.chatModel.call(formattedChatClientRequest.prompt()).block();
 		return ChatClientResponse.builder()
 			.chatResponse(chatResponse)
 			.context(Map.copyOf(formattedChatClientRequest.context()))
