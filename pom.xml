@@ -57,27 +57,29 @@
 		<module>document-readers/pdf-reader</module>
 		<module>document-readers/tika-reader</module>
 
-		<module>vector-stores/spring-ai-azure-cosmos-db-store</module>
-		<module>vector-stores/spring-ai-azure-store</module>
-		<module>vector-stores/spring-ai-cassandra-store</module>
-		<module>vector-stores/spring-ai-chroma-store</module>
-		<module>vector-stores/spring-ai-coherence-store</module>
-		<module>vector-stores/spring-ai-couchbase-store</module>
-		<module>vector-stores/spring-ai-elasticsearch-store</module>
-		<module>vector-stores/spring-ai-gemfire-store</module>
-		<module>vector-stores/spring-ai-hanadb-store</module>
-		<module>vector-stores/spring-ai-mariadb-store</module>
-		<module>vector-stores/spring-ai-milvus-store</module>
-		<module>vector-stores/spring-ai-mongodb-atlas-store</module>
-		<module>vector-stores/spring-ai-neo4j-store</module>
-		<module>vector-stores/spring-ai-opensearch-store</module>
-		<module>vector-stores/spring-ai-oracle-store</module>
-		<module>vector-stores/spring-ai-pgvector-store</module>
-		<module>vector-stores/spring-ai-pinecone-store</module>
-		<module>vector-stores/spring-ai-qdrant-store</module>
-		<module>vector-stores/spring-ai-redis-store</module>
-		<module>vector-stores/spring-ai-typesense-store</module>
-		<module>vector-stores/spring-ai-weaviate-store</module>
+		<!-- Excluding non-Qdrant vector stores for reactive conversion -->
+		<!-- <module>vector-stores/spring-ai-azure-cosmos-db-store</module> -->
+		<!-- <module>vector-stores/spring-ai-azure-store</module> -->
+		<!-- <module>vector-stores/spring-ai-cassandra-store</module> -->
+		<!-- <module>vector-stores/spring-ai-chroma-store</module> -->
+		<!-- <module>vector-stores/spring-ai-coherence-store</module> -->
+		<!-- <module>vector-stores/spring-ai-couchbase-store</module> -->
+		<!-- <module>vector-stores/spring-ai-elasticsearch-store</module> -->
+		<!-- <module>vector-stores/spring-ai-gemfire-store</module> -->
+		<!-- <module>vector-stores/spring-ai-hanadb-store</module> -->
+		<!-- <module>vector-stores/spring-ai-mariadb-store</module> -->
+		<!-- <module>vector-stores/spring-ai-milvus-store</module> -->
+		<!-- <module>vector-stores/spring-ai-mongodb-atlas-store</module> -->
+		<!-- <module>vector-stores/spring-ai-neo4j-store</module> -->
+		<!-- <module>vector-stores/spring-ai-opensearch-store</module> -->
+		<!-- <module>vector-stores/spring-ai-oracle-store</module> -->
+		<!-- <module>vector-stores/spring-ai-pgvector-store</module> -->
+		<!-- <module>vector-stores/spring-ai-pinecone-store</module> -->
+		<!-- Temporarily disabling Qdrant due to API compatibility issues -->
+		<!-- <module>vector-stores/spring-ai-qdrant-store</module> -->
+		<!-- <module>vector-stores/spring-ai-redis-store</module> -->
+		<!-- <module>vector-stores/spring-ai-typesense-store</module> -->
+		<!-- <module>vector-stores/spring-ai-weaviate-store</module> -->
 
 
 		<module>auto-configurations/common/spring-ai-autoconfigure-retry</module>
@@ -301,7 +303,7 @@
 		<azure-cosmos.version>5.22.0</azure-cosmos.version>
 		<elasticsearch-java.version>8.18.1</elasticsearch-java.version>
 		<weaviate-client.version>5.2.0</weaviate-client.version>
-		<qdrant.version>1.13.0</qdrant.version>
+		<qdrant.version>1.14.1</qdrant.version>
 		<typesense.version>1.3.0</typesense.version>
 		<opensearch-client.version>2.23.0</opensearch-client.version>
 		<postgresql.version>42.7.5</postgresql.version>

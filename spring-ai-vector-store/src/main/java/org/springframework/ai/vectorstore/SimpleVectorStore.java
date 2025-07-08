@@ -40,6 +40,8 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -102,41 +104,46 @@ public class SimpleVectorStore extends AbstractObservationVectorStore {
 	}
 
 	@Override
-	public void doAdd(List<Document> documents) {
+	public Mono<Void> doAdd(List<Document> documents) {
 		Objects.requireNonNull(documents, "Documents list cannot be null");
 		if (documents.isEmpty()) {
-			throw new IllegalArgumentException("Documents list cannot be empty");
+			return Mono.error(new IllegalArgumentException("Documents list cannot be empty"));
 		}
 
-		for (Document document : documents) {
+		return Flux.fromIterable(documents).flatMap(document -> {
 			logger.info("Calling EmbeddingModel for document id = {}", document.getId());
-			float[] embedding = this.embeddingModel.embed(document).block();
-			SimpleVectorStoreContent storeContent = new SimpleVectorStoreContent(document.getId(), document.getText(),
-					document.getMetadata(), embedding);
-			this.store.put(document.getId(), storeContent);
-		}
+			return this.embeddingModel.embed(document).map(embedding -> {
+				SimpleVectorStoreContent storeContent = new SimpleVectorStoreContent(document.getId(),
+						document.getText(), document.getMetadata(), embedding);
+				this.store.put(document.getId(), storeContent);
+				return storeContent;
+			});
+		}).then();
 	}
 
 	@Override
-	public void doDelete(List<String> idList) {
-		for (String id : idList) {
-			this.store.remove(id);
-		}
+	public Mono<Void> doDelete(List<String> idList) {
+		return Mono.fromRunnable(() -> {
+			for (String id : idList) {
+				this.store.remove(id);
+			}
+		});
 	}
 
 	@Override
-	public List<Document> doSimilaritySearch(SearchRequest request) {
-		Predicate<SimpleVectorStoreContent> documentFilterPredicate = doFilterPredicate(request);
-		float[] userQueryEmbedding = getUserQueryEmbedding(request.getQuery());
-		return this.store.values()
-			.stream()
-			.filter(documentFilterPredicate)
-			.map(content -> content
-				.toDocument(EmbeddingMath.cosineSimilarity(userQueryEmbedding, content.getEmbedding())))
-			.filter(document -> document.getScore() >= request.getSimilarityThreshold())
-			.sorted(Comparator.comparing(Document::getScore).reversed())
-			.limit(request.getTopK())
-			.toList();
+	public Mono<List<Document>> doSimilaritySearch(SearchRequest request) {
+		return this.embeddingModel.embed(request.getQuery()).map(userQueryEmbedding -> {
+			Predicate<SimpleVectorStoreContent> documentFilterPredicate = doFilterPredicate(request);
+			return this.store.values()
+				.stream()
+				.filter(documentFilterPredicate)
+				.map(content -> content
+					.toDocument(EmbeddingMath.cosineSimilarity(userQueryEmbedding, content.getEmbedding())))
+				.filter(document -> document.getScore() >= request.getSimilarityThreshold())
+				.sorted(Comparator.comparing(Document::getScore).reversed())
+				.limit(request.getTopK())
+				.toList();
+		});
 	}
 
 	private Predicate<SimpleVectorStoreContent> doFilterPredicate(SearchRequest request) {
@@ -233,15 +240,12 @@ public class SimpleVectorStore extends AbstractObservationVectorStore {
 		}
 	}
 
-	private float[] getUserQueryEmbedding(String query) {
-		return this.embeddingModel.embed(query).block();
-	}
-
 	@Override
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 
 		return VectorStoreObservationContext.builder(VectorStoreProvider.SIMPLE.value(), operationName)
-			.dimensions(this.embeddingModel.dimensions().block())
+			.dimensions(768) // Use default dimension, will be set correctly during actual
+								// operations
 			.collectionName("in-memory-map")
 			.similarityMetric(VectorStoreSimilarityMetric.COSINE.value());
 	}

@@ -389,9 +389,9 @@ public class VertexAiGeminiChatModel implements ChatModel, DisposableBean {
 
 	// https://cloud.google.com/vertex-ai/docs/generative-ai/model-reference/gemini
 	@Override
-	public ChatResponse call(Prompt prompt) {
+	public Mono<ChatResponse> call(Prompt prompt) {
 		var requestPrompt = this.buildRequestPrompt(prompt);
-		return this.internalCall(requestPrompt, null);
+		return this.internalCallReactive(requestPrompt, null);
 	}
 
 	private ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {

@@ -91,7 +91,9 @@ public final class VectorStoreDocumentRetriever implements DocumentRetriever {
 			.similarityThreshold(this.similarityThreshold)
 			.topK(this.topK)
 			.build();
-		return this.vectorStore.similaritySearch(searchRequest);
+		// Note: This is a temporary workaround using .block() until RAG interface becomes
+		// reactive
+		return this.vectorStore.similaritySearch(searchRequest).collectList().block();
 	}
 
 	/**

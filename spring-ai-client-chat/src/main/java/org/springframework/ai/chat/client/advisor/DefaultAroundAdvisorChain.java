@@ -24,6 +24,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -90,11 +91,11 @@ public class DefaultAroundAdvisorChain implements BaseAdvisorChain {
 	}
 
 	@Override
-	public ChatClientResponse nextCall(ChatClientRequest chatClientRequest) {
+	public Mono<ChatClientResponse> nextCall(ChatClientRequest chatClientRequest) {
 		Assert.notNull(chatClientRequest, "the chatClientRequest cannot be null");
 
 		if (this.callAdvisors.isEmpty()) {
-			throw new IllegalStateException("No CallAdvisors available to execute");
+			return Mono.error(new IllegalStateException("No CallAdvisors available to execute"));
 		}
 
 		var advisor = this.callAdvisors.pop();
@@ -105,9 +106,7 @@ public class DefaultAroundAdvisorChain implements BaseAdvisorChain {
 			.order(advisor.getOrder())
 			.build();
 
-		return AdvisorObservationDocumentation.AI_ADVISOR
-			.observation(null, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext, this.observationRegistry)
-			.observe(() -> advisor.adviseCall(chatClientRequest, this));
+		return advisor.adviseCall(chatClientRequest, this);
 	}
 
 	@Override

@@ -18,6 +18,8 @@ package org.springframework.ai.chat.evaluation;
 
 import java.util.Collections;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.evaluation.EvaluationRequest;
 import org.springframework.ai.evaluation.EvaluationResponse;
@@ -124,18 +126,19 @@ public class FactCheckingEvaluator implements Evaluator {
 	 * document
 	 */
 	@Override
-	public EvaluationResponse evaluate(EvaluationRequest evaluationRequest) {
+	public Mono<EvaluationResponse> evaluate(EvaluationRequest evaluationRequest) {
 		var response = evaluationRequest.getResponseContent();
 		var context = doGetSupportingData(evaluationRequest);
 
-		String evaluationResponse = this.chatClientBuilder.build()
+		return this.chatClientBuilder.build()
 			.prompt()
 			.user(userSpec -> userSpec.text(this.evaluationPrompt).param("document", context).param("claim", response))
 			.call()
-			.content();
-
-		boolean passing = evaluationResponse.equalsIgnoreCase("yes");
-		return new EvaluationResponse(passing, "", Collections.emptyMap());
+			.content()
+			.map(evaluationResponse -> {
+				boolean passing = evaluationResponse.equalsIgnoreCase("yes");
+				return new EvaluationResponse(passing, "", Collections.emptyMap());
+			});
 	}
 
 }

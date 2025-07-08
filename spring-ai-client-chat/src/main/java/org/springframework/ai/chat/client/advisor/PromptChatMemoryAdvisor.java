@@ -106,71 +106,75 @@ public final class PromptChatMemoryAdvisor implements BaseChatMemoryAdvisor {
 	}
 
 	@Override
-	public ChatClientRequest before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain) {
-		String conversationId = getConversationId(chatClientRequest.context(), this.defaultConversationId);
-		// 1. Retrieve the chat memory for the current conversation.
-		List<Message> memoryMessages = this.chatMemory.get(conversationId);
-		logger.debug("[PromptChatMemoryAdvisor.before] Memory before processing for conversationId={}: {}",
-				conversationId, memoryMessages);
+	public Mono<ChatClientRequest> before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain) {
+		return Mono.fromCallable(() -> {
+			String conversationId = getConversationId(chatClientRequest.context(), this.defaultConversationId);
+			// 1. Retrieve the chat memory for the current conversation.
+			List<Message> memoryMessages = this.chatMemory.get(conversationId);
+			logger.debug("[PromptChatMemoryAdvisor.before] Memory before processing for conversationId={}: {}",
+					conversationId, memoryMessages);
 
-		// 2. Process memory messages as a string.
-		String memory = memoryMessages.stream()
-			.filter(m -> m.getMessageType() == MessageType.USER || m.getMessageType() == MessageType.ASSISTANT)
-			.map(m -> m.getMessageType() + ":" + m.getText())
-			.collect(Collectors.joining(System.lineSeparator()));
+			// 2. Process memory messages as a string.
+			String memory = memoryMessages.stream()
+				.filter(m -> m.getMessageType() == MessageType.USER || m.getMessageType() == MessageType.ASSISTANT)
+				.map(m -> m.getMessageType() + ":" + m.getText())
+				.collect(Collectors.joining(System.lineSeparator()));
 
-		// 3. Augment the system message.
-		SystemMessage systemMessage = chatClientRequest.prompt().getSystemMessage();
-		String augmentedSystemText = this.systemPromptTemplate
-			.render(Map.of("instructions", systemMessage.getText(), "memory", memory));
+			// 3. Augment the system message.
+			SystemMessage systemMessage = chatClientRequest.prompt().getSystemMessage();
+			String augmentedSystemText = this.systemPromptTemplate
+				.render(Map.of("instructions", systemMessage.getText(), "memory", memory));
 
-		// 4. Create a new request with the augmented system message.
-		ChatClientRequest processedChatClientRequest = chatClientRequest.mutate()
-			.prompt(chatClientRequest.prompt().augmentSystemMessage(augmentedSystemText))
-			.build();
+			// 4. Create a new request with the augmented system message.
+			ChatClientRequest processedChatClientRequest = chatClientRequest.mutate()
+				.prompt(chatClientRequest.prompt().augmentSystemMessage(augmentedSystemText))
+				.build();
 
-		// 5. Add all user messages from the current prompt to memory (after system
-		// message is generated)
-		// 4. Add the new user message to the conversation memory.
-		UserMessage userMessage = processedChatClientRequest.prompt().getUserMessage();
-		this.chatMemory.add(conversationId, userMessage);
+			// 5. Add all user messages from the current prompt to memory (after system
+			// message is generated)
+			// 4. Add the new user message to the conversation memory.
+			UserMessage userMessage = processedChatClientRequest.prompt().getUserMessage();
+			this.chatMemory.add(conversationId, userMessage);
 
-		return processedChatClientRequest;
+			return processedChatClientRequest;
+		});
 	}
 
 	@Override
-	public ChatClientResponse after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
-		List<Message> assistantMessages = new ArrayList<>();
-		// Handle streaming case where we have a single result
-		if (chatClientResponse.chatResponse() != null && chatClientResponse.chatResponse().getResult() != null
-				&& chatClientResponse.chatResponse().getResult().getOutput() != null) {
-			assistantMessages = List.of((Message) chatClientResponse.chatResponse().getResult().getOutput());
-		}
-		else if (chatClientResponse.chatResponse() != null) {
-			assistantMessages = chatClientResponse.chatResponse()
-				.getResults()
-				.stream()
-				.map(g -> (Message) g.getOutput())
-				.toList();
-		}
-
-		if (!assistantMessages.isEmpty()) {
-			this.chatMemory.add(this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
-					assistantMessages);
-
-			if (logger.isDebugEnabled()) {
-				logger.debug(
-						"[PromptChatMemoryAdvisor.after] Added ASSISTANT messages to memory for conversationId={}: {}",
-						this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
-						assistantMessages);
-				List<Message> memoryMessages = this.chatMemory
-					.get(this.getConversationId(chatClientResponse.context(), this.defaultConversationId));
-				logger.debug("[PromptChatMemoryAdvisor.after] Memory after ASSISTANT add for conversationId={}: {}",
-						this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
-						memoryMessages);
+	public Mono<ChatClientResponse> after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
+		return Mono.fromCallable(() -> {
+			List<Message> assistantMessages = new ArrayList<>();
+			// Handle streaming case where we have a single result
+			if (chatClientResponse.chatResponse() != null && chatClientResponse.chatResponse().getResult() != null
+					&& chatClientResponse.chatResponse().getResult().getOutput() != null) {
+				assistantMessages = List.of((Message) chatClientResponse.chatResponse().getResult().getOutput());
 			}
-		}
-		return chatClientResponse;
+			else if (chatClientResponse.chatResponse() != null) {
+				assistantMessages = chatClientResponse.chatResponse()
+					.getResults()
+					.stream()
+					.map(g -> (Message) g.getOutput())
+					.toList();
+			}
+
+			if (!assistantMessages.isEmpty()) {
+				this.chatMemory.add(this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
+						assistantMessages);
+
+				if (logger.isDebugEnabled()) {
+					logger.debug(
+							"[PromptChatMemoryAdvisor.after] Added ASSISTANT messages to memory for conversationId={}: {}",
+							this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
+							assistantMessages);
+					List<Message> memoryMessages = this.chatMemory
+						.get(this.getConversationId(chatClientResponse.context(), this.defaultConversationId));
+					logger.debug("[PromptChatMemoryAdvisor.after] Memory after ASSISTANT add for conversationId={}: {}",
+							this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
+							memoryMessages);
+				}
+			}
+			return chatClientResponse;
+		});
 	}
 
 	@Override
@@ -182,7 +186,7 @@ public final class PromptChatMemoryAdvisor implements BaseChatMemoryAdvisor {
 		// Process the request with the before method
 		return Mono.just(chatClientRequest)
 			.publishOn(scheduler)
-			.map(request -> this.before(request, streamAdvisorChain))
+			.flatMap(request -> this.before(request, streamAdvisorChain))
 			.flatMapMany(streamAdvisorChain::nextStream)
 			.transform(flux -> new ChatClientMessageAggregator().aggregateChatClientResponse(flux,
 					response -> this.after(response, streamAdvisorChain)));

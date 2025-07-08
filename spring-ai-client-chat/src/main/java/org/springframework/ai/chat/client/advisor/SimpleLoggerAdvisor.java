@@ -21,6 +21,7 @@ import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClientMessageAggregator;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -68,14 +69,10 @@ public class SimpleLoggerAdvisor implements CallAdvisor, StreamAdvisor {
 	}
 
 	@Override
-	public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+	public Mono<ChatClientResponse> adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
 		logRequest(chatClientRequest);
 
-		ChatClientResponse chatClientResponse = callAdvisorChain.nextCall(chatClientRequest);
-
-		logResponse(chatClientResponse);
-
-		return chatClientResponse;
+		return callAdvisorChain.nextCall(chatClientRequest).doOnNext(this::logResponse);
 	}
 
 	@Override

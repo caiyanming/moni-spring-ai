@@ -16,6 +16,8 @@
 
 package org.springframework.ai.chat.client.advisor.api;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 
@@ -29,6 +31,6 @@ import org.springframework.ai.chat.client.ChatClientResponse;
  */
 public interface CallAdvisor extends Advisor {
 
-	ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain);
+	Mono<ChatClientResponse> adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain);
 
 }

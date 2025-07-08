@@ -18,6 +18,8 @@ package org.springframework.ai.chat.client.advisor;
 
 import java.util.Map;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.client.ChatClientAttributes;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -46,16 +48,16 @@ public final class ChatModelCallAdvisor implements CallAdvisor {
 	}
 
 	@Override
-	public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+	public Mono<ChatClientResponse> adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
 		Assert.notNull(chatClientRequest, "the chatClientRequest cannot be null");
 
 		ChatClientRequest formattedChatClientRequest = augmentWithFormatInstructions(chatClientRequest);
 
-		ChatResponse chatResponse = this.chatModel.call(formattedChatClientRequest.prompt()).block();
-		return ChatClientResponse.builder()
-			.chatResponse(chatResponse)
-			.context(Map.copyOf(formattedChatClientRequest.context()))
-			.build();
+		return this.chatModel.call(formattedChatClientRequest.prompt())
+			.map(chatResponse -> ChatClientResponse.builder()
+				.chatResponse(chatResponse)
+				.context(Map.copyOf(formattedChatClientRequest.context()))
+				.build());
 	}
 
 	private static ChatClientRequest augmentWithFormatInstructions(ChatClientRequest chatClientRequest) {

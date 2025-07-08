@@ -22,6 +22,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.internal.verification.Times;
+import reactor.core.publisher.Flux;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
@@ -190,7 +191,7 @@ class VectorStoreDocumentRetrieverTests {
 		// Setup mock to return some documents
 		List<Document> mockDocuments = List.of(new Document("content1", Map.of("id", "1")),
 				new Document("content2", Map.of("id", "2")));
-		when(mockVectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(mockDocuments);
+		when(mockVectorStore.similaritySearch(any(SearchRequest.class))).thenReturn(Flux.fromIterable(mockDocuments));
 
 		var query = new Query("test query");
 		var result = documentRetriever.retrieve(query);

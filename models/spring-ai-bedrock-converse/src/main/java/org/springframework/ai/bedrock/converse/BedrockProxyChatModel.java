@@ -213,9 +213,9 @@ public class BedrockProxyChatModel implements ChatModel {
 	 * @return The model invocation response.
 	 */
 	@Override
-	public ChatResponse call(Prompt prompt) {
+	public Mono<ChatResponse> call(Prompt prompt) {
 		Prompt requestPrompt = buildRequestPrompt(prompt);
-		return this.internalCall(requestPrompt, null);
+		return this.internalCallReactive(requestPrompt, null);
 	}
 
 	private ChatResponse internalCall(Prompt prompt, ChatResponse perviousChatResponse) {

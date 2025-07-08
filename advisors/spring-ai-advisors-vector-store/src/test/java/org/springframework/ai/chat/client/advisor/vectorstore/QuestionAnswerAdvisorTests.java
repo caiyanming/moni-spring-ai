@@ -27,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClient;
@@ -112,7 +113,7 @@ public class QuestionAnswerAdvisorTests {
 		// @formatter:on
 
 		given(this.vectorStore.similaritySearch(this.vectorSearchCaptor.capture()))
-			.willReturn(List.of(new Document("doc1"), new Document("doc2")));
+			.willReturn(Flux.fromIterable(List.of(new Document("doc1"), new Document("doc2"))));
 
 		var qaAdvisor = QuestionAnswerAdvisor.builder(this.vectorStore)
 			.searchRequest(SearchRequest.builder().similarityThreshold(0.99d).topK(6).build())
@@ -187,7 +188,7 @@ public class QuestionAnswerAdvisorTests {
 						ChatResponseMetadata.builder().build())));
 
 		given(this.vectorStore.similaritySearch(this.vectorSearchCaptor.capture()))
-				.willReturn(List.of(new Document("doc1"), new Document("doc2")));
+				.willReturn(Flux.fromIterable(List.of(new Document("doc1"), new Document("doc2"))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var qaAdvisor = QuestionAnswerAdvisor.builder(this.vectorStore)
@@ -217,7 +218,7 @@ public class QuestionAnswerAdvisorTests {
 						ChatResponseMetadata.builder().build())));
 
 		given(this.vectorStore.similaritySearch(this.vectorSearchCaptor.capture()))
-				.willReturn(List.of(new Document("doc1"), new Document("doc2")));
+				.willReturn(Flux.fromIterable(List.of(new Document("doc1"), new Document("doc2"))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var qaAdvisor = QuestionAnswerAdvisor.builder(this.vectorStore)

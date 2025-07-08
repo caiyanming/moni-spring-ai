@@ -39,7 +39,7 @@ public class TransformersEmbeddingModelTests {
 
 		TransformersEmbeddingModel embeddingModel = new TransformersEmbeddingModel();
 		embeddingModel.afterPropertiesSet();
-		float[] embed = embeddingModel.embed("Hello world");
+		float[] embed = embeddingModel.embed("Hello world").block();
 		assertThat(embed).hasSize(384);
 		assertThat(DF.format(embed[0])).isEqualTo(DF.format(-0.19744634628295898));
 		assertThat(DF.format(embed[383])).isEqualTo(DF.format(0.17298996448516846));
@@ -49,7 +49,7 @@ public class TransformersEmbeddingModelTests {
 	void embedDocument() throws Exception {
 		TransformersEmbeddingModel embeddingModel = new TransformersEmbeddingModel();
 		embeddingModel.afterPropertiesSet();
-		float[] embed = embeddingModel.embed(new Document("Hello world"));
+		float[] embed = embeddingModel.embed(new Document("Hello world")).block();
 		assertThat(embed).hasSize(384);
 		assertThat(DF.format(embed[0])).isEqualTo(DF.format(-0.19744634628295898));
 		assertThat(DF.format(embed[383])).isEqualTo(DF.format(0.17298996448516846));
@@ -59,7 +59,7 @@ public class TransformersEmbeddingModelTests {
 	void embedList() throws Exception {
 		TransformersEmbeddingModel embeddingModel = new TransformersEmbeddingModel();
 		embeddingModel.afterPropertiesSet();
-		List<float[]> embed = embeddingModel.embed(List.of("Hello world", "World is big"));
+		List<float[]> embed = embeddingModel.embed(List.of("Hello world", "World is big")).block();
 		assertThat(embed).hasSize(2);
 		assertThat(embed.get(0)).hasSize(384);
 		assertThat(DF.format(embed.get(0)[0])).isEqualTo(DF.format(-0.19744634628295898));
@@ -76,7 +76,7 @@ public class TransformersEmbeddingModelTests {
 	void embedForResponse() throws Exception {
 		TransformersEmbeddingModel embeddingModel = new TransformersEmbeddingModel();
 		embeddingModel.afterPropertiesSet();
-		EmbeddingResponse embed = embeddingModel.embedForResponse(List.of("Hello world", "World is big"));
+		EmbeddingResponse embed = embeddingModel.embedForResponse(List.of("Hello world", "World is big")).block();
 		assertThat(embed.getResults()).hasSize(2);
 		assertTrue(embed.getMetadata().isEmpty(), "Expected embed metadata to be empty, but it was not.");
 

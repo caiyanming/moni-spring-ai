@@ -18,6 +18,8 @@ package org.springframework.ai.chat.client.advisor.api;
 
 import java.util.List;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 
@@ -36,7 +38,7 @@ public interface CallAdvisorChain extends AdvisorChain {
 	 * Invokes the next {@link CallAdvisor} in the {@link CallAdvisorChain} with the given
 	 * request.
 	 */
-	ChatClientResponse nextCall(ChatClientRequest chatClientRequest);
+	Mono<ChatClientResponse> nextCall(ChatClientRequest chatClientRequest);
 
 	/**
 	 * Returns the list of all the {@link CallAdvisor} instances included in this chain at

@@ -76,41 +76,45 @@ public final class MessageChatMemoryAdvisor implements BaseChatMemoryAdvisor {
 	}
 
 	@Override
-	public ChatClientRequest before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain) {
-		String conversationId = getConversationId(chatClientRequest.context(), this.defaultConversationId);
+	public Mono<ChatClientRequest> before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain) {
+		return Mono.fromCallable(() -> {
+			String conversationId = getConversationId(chatClientRequest.context(), this.defaultConversationId);
 
-		// 1. Retrieve the chat memory for the current conversation.
-		List<Message> memoryMessages = this.chatMemory.get(conversationId);
+			// 1. Retrieve the chat memory for the current conversation.
+			List<Message> memoryMessages = this.chatMemory.get(conversationId);
 
-		// 2. Advise the request messages list.
-		List<Message> processedMessages = new ArrayList<>(memoryMessages);
-		processedMessages.addAll(chatClientRequest.prompt().getInstructions());
+			// 2. Advise the request messages list.
+			List<Message> processedMessages = new ArrayList<>(memoryMessages);
+			processedMessages.addAll(chatClientRequest.prompt().getInstructions());
 
-		// 3. Create a new request with the advised messages.
-		ChatClientRequest processedChatClientRequest = chatClientRequest.mutate()
-			.prompt(chatClientRequest.prompt().mutate().messages(processedMessages).build())
-			.build();
+			// 3. Create a new request with the advised messages.
+			ChatClientRequest processedChatClientRequest = chatClientRequest.mutate()
+				.prompt(chatClientRequest.prompt().mutate().messages(processedMessages).build())
+				.build();
 
-		// 4. Add the new user message to the conversation memory.
-		UserMessage userMessage = processedChatClientRequest.prompt().getUserMessage();
-		this.chatMemory.add(conversationId, userMessage);
+			// 4. Add the new user message to the conversation memory.
+			UserMessage userMessage = processedChatClientRequest.prompt().getUserMessage();
+			this.chatMemory.add(conversationId, userMessage);
 
-		return processedChatClientRequest;
+			return processedChatClientRequest;
+		});
 	}
 
 	@Override
-	public ChatClientResponse after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
-		List<Message> assistantMessages = new ArrayList<>();
-		if (chatClientResponse.chatResponse() != null) {
-			assistantMessages = chatClientResponse.chatResponse()
-				.getResults()
-				.stream()
-				.map(g -> (Message) g.getOutput())
-				.toList();
-		}
-		this.chatMemory.add(this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
-				assistantMessages);
-		return chatClientResponse;
+	public Mono<ChatClientResponse> after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
+		return Mono.fromCallable(() -> {
+			List<Message> assistantMessages = new ArrayList<>();
+			if (chatClientResponse.chatResponse() != null) {
+				assistantMessages = chatClientResponse.chatResponse()
+					.getResults()
+					.stream()
+					.map(g -> (Message) g.getOutput())
+					.toList();
+			}
+			this.chatMemory.add(this.getConversationId(chatClientResponse.context(), this.defaultConversationId),
+					assistantMessages);
+			return chatClientResponse;
+		});
 	}
 
 	@Override
@@ -122,7 +126,7 @@ public final class MessageChatMemoryAdvisor implements BaseChatMemoryAdvisor {
 		// Process the request with the before method
 		return Mono.just(chatClientRequest)
 			.publishOn(scheduler)
-			.map(request -> this.before(request, streamAdvisorChain))
+			.flatMap(request -> this.before(request, streamAdvisorChain))
 			.flatMapMany(streamAdvisorChain::nextStream)
 			.transform(flux -> new ChatClientMessageAggregator().aggregateChatClientResponse(flux,
 					response -> this.after(response, streamAdvisorChain)));

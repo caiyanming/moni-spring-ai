@@ -44,13 +44,15 @@ public interface BaseAdvisor extends CallAdvisor, StreamAdvisor {
 	Scheduler DEFAULT_SCHEDULER = Schedulers.boundedElastic();
 
 	@Override
-	default ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+	default Mono<ChatClientResponse> adviseCall(ChatClientRequest chatClientRequest,
+			CallAdvisorChain callAdvisorChain) {
 		Assert.notNull(chatClientRequest, "chatClientRequest cannot be null");
 		Assert.notNull(callAdvisorChain, "callAdvisorChain cannot be null");
 
-		ChatClientRequest processedChatClientRequest = before(chatClientRequest, callAdvisorChain);
-		ChatClientResponse chatClientResponse = callAdvisorChain.nextCall(processedChatClientRequest);
-		return after(chatClientResponse, callAdvisorChain);
+		return before(chatClientRequest, callAdvisorChain)
+			.flatMap(processedRequest -> callAdvisorChain.nextCall(processedRequest))
+			.flatMap(response -> after(response, callAdvisorChain))
+			.subscribeOn(getScheduler());
 	}
 
 	@Override
@@ -58,19 +60,16 @@ public interface BaseAdvisor extends CallAdvisor, StreamAdvisor {
 			StreamAdvisorChain streamAdvisorChain) {
 		Assert.notNull(chatClientRequest, "chatClientRequest cannot be null");
 		Assert.notNull(streamAdvisorChain, "streamAdvisorChain cannot be null");
-		Assert.notNull(getScheduler(), "scheduler cannot be null");
 
-		Flux<ChatClientResponse> chatClientResponseFlux = Mono.just(chatClientRequest)
-			.publishOn(getScheduler())
-			.map(request -> this.before(request, streamAdvisorChain))
-			.flatMapMany(streamAdvisorChain::nextStream);
-
-		return chatClientResponseFlux.map(response -> {
-			if (AdvisorUtils.onFinishReason().test(response)) {
-				response = after(response, streamAdvisorChain);
-			}
-			return response;
-		}).onErrorResume(error -> Flux.error(new IllegalStateException("Stream processing failed", error)));
+		return before(chatClientRequest, streamAdvisorChain)
+			.flatMapMany(processedRequest -> streamAdvisorChain.nextStream(processedRequest))
+			.flatMap(response -> {
+				if (AdvisorUtils.onFinishReason().test(response)) {
+					return after(response, streamAdvisorChain);
+				}
+				return Mono.just(response);
+			})
+			.onErrorResume(error -> Flux.error(new IllegalStateException("Stream processing failed", error)));
 	}
 
 	@Override
@@ -81,12 +80,12 @@ public interface BaseAdvisor extends CallAdvisor, StreamAdvisor {
 	/**
 	 * Logic to be executed before the rest of the advisor chain is called.
 	 */
-	ChatClientRequest before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain);
+	Mono<ChatClientRequest> before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain);
 
 	/**
 	 * Logic to be executed after the rest of the advisor chain is called.
 	 */
-	ChatClientResponse after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain);
+	Mono<ChatClientResponse> after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain);
 
 	/**
 	 * Scheduler used for processing the advisor logic when streaming.

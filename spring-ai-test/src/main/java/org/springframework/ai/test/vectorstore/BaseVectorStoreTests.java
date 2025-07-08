@@ -20,11 +20,13 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -32,7 +34,6 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.ai.vectorstore.filter.Filter;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.awaitility.Awaitility.await;
 
 /**
  * Base test class for VectorStore implementations. Provides common test scenarios for
@@ -59,112 +60,118 @@ public abstract class BaseVectorStoreTests {
 		return new Document("The World is Big and Salvation Lurks Around the Corner", metadata);
 	}
 
-	protected List<Document> setupTestDocuments(VectorStore vectorStore) {
+	protected Mono<List<Document>> setupTestDocuments(VectorStore vectorStore) {
 		var doc1 = createDocument("BG", 2020);
 		var doc2 = createDocument("NL", null);
 		var doc3 = createDocument("BG", 2023);
 
 		List<Document> documents = List.of(doc1, doc2, doc3);
-		vectorStore.add(documents);
-
-		return documents;
+		return vectorStore.add(Flux.fromIterable(documents)).then(Mono.just(documents));
 	}
 
 	private String normalizeValue(Object value) {
 		return value.toString().replaceAll("^\"|\"$", "").trim();
 	}
 
-	private void verifyDocumentsExist(VectorStore vectorStore, List<Document> documents) {
-		await().atMost(5, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(500)).untilAsserted(() -> {
-			List<Document> results = vectorStore.similaritySearch(
-					SearchRequest.builder().query("The World").topK(documents.size()).similarityThresholdAll().build());
-			assertThat(results).hasSize(documents.size());
-		});
+	private Mono<Void> verifyDocumentsExist(VectorStore vectorStore, List<Document> documents) {
+		return vectorStore
+			.similaritySearch(
+					SearchRequest.builder().query("The World").topK(documents.size()).similarityThresholdAll().build())
+			.collectList()
+			.doOnNext(results -> assertThat(results).hasSize(documents.size()))
+			.then();
 	}
 
-	private void verifyDocumentsDeleted(VectorStore vectorStore, List<String> deletedIds) {
-		await().atMost(5, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(500)).untilAsserted(() -> {
-			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.builder().query("The World").topK(10).similarityThresholdAll().build());
-
-			List<String> foundIds = results.stream().map(Document::getId).collect(Collectors.toList());
-
-			assertThat(foundIds).doesNotContainAnyElementsOf(deletedIds);
-		});
+	private Mono<Void> verifyDocumentsDeleted(VectorStore vectorStore, List<String> deletedIds) {
+		return vectorStore
+			.similaritySearch(SearchRequest.builder().query("The World").topK(10).similarityThresholdAll().build())
+			.map(Document::getId)
+			.collectList()
+			.doOnNext(foundIds -> assertThat(foundIds).doesNotContainAnyElementsOf(deletedIds))
+			.then();
 	}
 
 	@Test
 	protected void deleteById() {
 		executeTest(vectorStore -> {
-			List<Document> documents = setupTestDocuments(vectorStore);
-			verifyDocumentsExist(vectorStore, documents);
+			Mono<Void> testFlow = setupTestDocuments(vectorStore)
+				.flatMap(documents -> verifyDocumentsExist(vectorStore, documents).then(Mono.defer(() -> {
+					List<String> idsToDelete = List.of(documents.get(0).getId(), documents.get(1).getId());
+					return vectorStore.delete(Flux.fromIterable(idsToDelete))
+						.then(verifyDocumentsDeleted(vectorStore, idsToDelete))
+						.then(vectorStore
+							.similaritySearch(
+									SearchRequest.builder().query("The World").topK(5).similarityThresholdAll().build())
+							.collectList()
+							.doOnNext(results -> {
+								assertThat(results).hasSize(1);
+								assertThat(results.get(0).getId()).isEqualTo(documents.get(2).getId());
+								Map<String, Object> metadata = results.get(0).getMetadata();
+								assertThat(normalizeValue(metadata.get("country"))).isEqualTo("BG");
+								// the values are converted into Double
+								assertThat(normalizeValue(metadata.get("year"))).containsAnyOf("2023", "2023.0");
+							}))
+						.then(vectorStore.delete(Flux.just(documents.get(2).getId())));
+				})));
 
-			List<String> idsToDelete = List.of(documents.get(0).getId(), documents.get(1).getId());
-			vectorStore.delete(idsToDelete);
-			verifyDocumentsDeleted(vectorStore, idsToDelete);
-
-			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.builder().query("The World").topK(5).similarityThresholdAll().build());
-
-			assertThat(results).hasSize(1);
-			assertThat(results.get(0).getId()).isEqualTo(documents.get(2).getId());
-			Map<String, Object> metadata = results.get(0).getMetadata();
-			assertThat(normalizeValue(metadata.get("country"))).isEqualTo("BG");
-			// the values are converted into Double
-			assertThat(normalizeValue(metadata.get("year"))).containsAnyOf("2023", "2023.0");
-
-			vectorStore.delete(List.of(documents.get(2).getId()));
+			StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(10));
 		});
 	}
 
 	@Test
 	protected void deleteWithStringFilterExpression() {
 		executeTest(vectorStore -> {
-			List<Document> documents = setupTestDocuments(vectorStore);
-			verifyDocumentsExist(vectorStore, documents);
+			Mono<Void> testFlow = setupTestDocuments(vectorStore)
+				.flatMap(documents -> verifyDocumentsExist(vectorStore, documents).then(Mono.defer(() -> {
+					List<String> bgDocIds = documents.stream()
+						.filter(d -> "BG".equals(d.getMetadata().get("country")))
+						.map(Document::getId)
+						.collect(Collectors.toList());
 
-			List<String> bgDocIds = documents.stream()
-				.filter(d -> "BG".equals(d.getMetadata().get("country")))
-				.map(Document::getId)
-				.collect(Collectors.toList());
+					return vectorStore.delete("country == 'BG'")
+						.then(verifyDocumentsDeleted(vectorStore, bgDocIds))
+						.then(vectorStore
+							.similaritySearch(
+									SearchRequest.builder().query("The World").topK(5).similarityThresholdAll().build())
+							.collectList()
+							.doOnNext(results -> {
+								assertThat(results).hasSize(1);
+								assertThat(normalizeValue(results.get(0).getMetadata().get("country"))).isEqualTo("NL");
+							}))
+						.then(vectorStore.delete(Flux.just(documents.get(1).getId())));
+				})));
 
-			vectorStore.delete("country == 'BG'");
-			verifyDocumentsDeleted(vectorStore, bgDocIds);
-
-			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.builder().query("The World").topK(5).similarityThresholdAll().build());
-
-			assertThat(results).hasSize(1);
-			assertThat(normalizeValue(results.get(0).getMetadata().get("country"))).isEqualTo("NL");
-
-			vectorStore.delete(List.of(documents.get(1).getId()));
+			StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(10));
 		});
 	}
 
 	@Test
 	protected void deleteByFilter() {
 		executeTest(vectorStore -> {
-			List<Document> documents = setupTestDocuments(vectorStore);
-			verifyDocumentsExist(vectorStore, documents);
+			Mono<Void> testFlow = setupTestDocuments(vectorStore)
+				.flatMap(documents -> verifyDocumentsExist(vectorStore, documents).then(Mono.defer(() -> {
+					List<String> bgDocIds = documents.stream()
+						.filter(d -> "BG".equals(d.getMetadata().get("country")))
+						.map(Document::getId)
+						.collect(Collectors.toList());
 
-			List<String> bgDocIds = documents.stream()
-				.filter(d -> "BG".equals(d.getMetadata().get("country")))
-				.map(Document::getId)
-				.collect(Collectors.toList());
+					Filter.Expression filterExpression = new Filter.Expression(Filter.ExpressionType.EQ,
+							new Filter.Key("country"), new Filter.Value("BG"));
 
-			Filter.Expression filterExpression = new Filter.Expression(Filter.ExpressionType.EQ,
-					new Filter.Key("country"), new Filter.Value("BG"));
+					return vectorStore.delete(filterExpression)
+						.then(verifyDocumentsDeleted(vectorStore, bgDocIds))
+						.then(vectorStore
+							.similaritySearch(
+									SearchRequest.builder().query("The World").topK(5).similarityThresholdAll().build())
+							.collectList()
+							.doOnNext(results -> {
+								assertThat(results).hasSize(1);
+								assertThat(normalizeValue(results.get(0).getMetadata().get("country"))).isEqualTo("NL");
+							}))
+						.then(vectorStore.delete(Flux.just(documents.get(1).getId())));
+				})));
 
-			vectorStore.delete(filterExpression);
-			verifyDocumentsDeleted(vectorStore, bgDocIds);
-
-			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.builder().query("The World").topK(5).similarityThresholdAll().build());
-
-			assertThat(results).hasSize(1);
-			assertThat(normalizeValue(results.get(0).getMetadata().get("country"))).isEqualTo("NL");
-
-			vectorStore.delete(List.of(documents.get(1).getId()));
+			StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(10));
 		});
 	}
 

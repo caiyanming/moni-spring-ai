@@ -69,7 +69,7 @@ public class Neo4jVectorStoreAutoConfiguration {
 			.batchingStrategy(batchingStrategy)
 			.databaseName(properties.getDatabaseName())
 			.embeddingDimension(properties.getEmbeddingDimension() != null ? properties.getEmbeddingDimension()
-					: embeddingModel.dimensions())
+					: embeddingModel.dimensions().block())
 			.distanceType(properties.getDistanceType())
 			.label(properties.getLabel())
 			.embeddingProperty(properties.getEmbeddingProperty())

@@ -19,6 +19,8 @@ package org.springframework.ai.vectorstore.observation;
 import java.util.List;
 
 import io.micrometer.observation.ObservationRegistry;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.BatchingStrategy;
@@ -73,16 +75,18 @@ public abstract class AbstractObservationVectorStore implements VectorStore {
 	 * @param documents the documents to add
 	 */
 	@Override
-	public void add(List<Document> documents) {
-		validateNonTextDocuments(documents);
-		VectorStoreObservationContext observationContext = this
-			.createObservationContextBuilder(VectorStoreObservationContext.Operation.ADD.value())
-			.build();
+	public Mono<Void> add(Flux<Document> documents) {
+		return documents.collectList().flatMap(docList -> {
+			validateNonTextDocuments(docList);
+			VectorStoreObservationContext observationContext = this
+				.createObservationContextBuilder(VectorStoreObservationContext.Operation.ADD.value())
+				.build();
 
-		VectorStoreObservationDocumentation.AI_VECTOR_STORE
-			.observation(this.customObservationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> this.doAdd(documents));
+			return VectorStoreObservationDocumentation.AI_VECTOR_STORE
+				.observation(this.customObservationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> this.doAdd(docList));
+		});
 	}
 
 	private void validateNonTextDocuments(List<Document> documents) {
@@ -97,81 +101,75 @@ public abstract class AbstractObservationVectorStore implements VectorStore {
 	}
 
 	@Override
-	public void delete(List<String> deleteDocIds) {
+	public Mono<Void> delete(Flux<String> deleteDocIds) {
+		return deleteDocIds.collectList().flatMap(docIds -> {
+			VectorStoreObservationContext observationContext = this
+				.createObservationContextBuilder(VectorStoreObservationContext.Operation.DELETE.value())
+				.build();
 
-		VectorStoreObservationContext observationContext = this
-			.createObservationContextBuilder(VectorStoreObservationContext.Operation.DELETE.value())
-			.build();
-
-		VectorStoreObservationDocumentation.AI_VECTOR_STORE
-			.observation(this.customObservationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> this.doDelete(deleteDocIds));
+			return VectorStoreObservationDocumentation.AI_VECTOR_STORE
+				.observation(this.customObservationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> this.doDelete(docIds));
+		});
 	}
 
 	@Override
-	public void delete(Filter.Expression filterExpression) {
+	public Mono<Void> delete(Filter.Expression filterExpression) {
 		VectorStoreObservationContext observationContext = this
 			.createObservationContextBuilder(VectorStoreObservationContext.Operation.DELETE.value())
 			.build();
 
-		VectorStoreObservationDocumentation.AI_VECTOR_STORE
+		return VectorStoreObservationDocumentation.AI_VECTOR_STORE
 			.observation(this.customObservationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
 					this.observationRegistry)
 			.observe(() -> this.doDelete(filterExpression));
 	}
 
 	@Override
-	// Micrometer Observation#observe returns the value of the Supplier, which is never
-	// null
-	@SuppressWarnings("DataFlowIssue")
-	public List<Document> similaritySearch(SearchRequest request) {
+	public Flux<Document> similaritySearch(SearchRequest request) {
 
 		VectorStoreObservationContext searchObservationContext = this
 			.createObservationContextBuilder(VectorStoreObservationContext.Operation.QUERY.value())
 			.queryRequest(request)
 			.build();
 
-		return VectorStoreObservationDocumentation.AI_VECTOR_STORE
-			.observation(this.customObservationConvention, DEFAULT_OBSERVATION_CONVENTION,
-					() -> searchObservationContext, this.observationRegistry)
-			.observe(() -> {
-				var documents = this.doSimilaritySearch(request);
-				searchObservationContext.setQueryResponse(documents);
-				return documents;
-			});
+		return this.doSimilaritySearch(request)
+			.doOnNext(documents -> searchObservationContext.setQueryResponse(documents))
+			.flatMapMany(Flux::fromIterable);
 	}
 
 	/**
 	 * Perform the actual add operation.
 	 * @param documents the documents to add
 	 */
-	public abstract void doAdd(List<Document> documents);
+	public abstract Mono<Void> doAdd(List<Document> documents);
 
 	/**
 	 * Perform the actual delete operation.
 	 * @param idList the list of document IDs to delete
 	 */
-	public abstract void doDelete(List<String> idList);
+	public abstract Mono<Void> doDelete(List<String> idList);
 
 	/**
 	 * Template method for concrete implementations to provide filter-based deletion
 	 * logic.
 	 * @param filterExpression Filter expression to identify documents to delete
 	 */
-	protected void doDelete(Filter.Expression filterExpression) {
+	protected Mono<Void> doDelete(Filter.Expression filterExpression) {
 		// this is temporary until we implement this method in all concrete vector stores,
 		// at which point
 		// this method will become an abstract method.
-		throw new UnsupportedOperationException();
+		return Mono.error(new UnsupportedOperationException());
 	}
 
 	/**
 	 * Perform the actual similarity search operation.
 	 * @param request the search request
-	 * @return the list of documents that match the query request conditions
+	 * @return a Mono containing the list of documents that match the query request
+	 * conditions
 	 */
-	public abstract List<Document> doSimilaritySearch(SearchRequest request);
+	public abstract Mono<List<Document>> doSimilaritySearch(SearchRequest request);
 
 	/**
 	 * Create a new {@link VectorStoreObservationContext.Builder} instance.

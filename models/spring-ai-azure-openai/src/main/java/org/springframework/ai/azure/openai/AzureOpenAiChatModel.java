@@ -245,11 +245,11 @@ public class AzureOpenAiChatModel implements ChatModel {
 	}
 
 	@Override
-	public ChatResponse call(Prompt prompt) {
+	public Mono<ChatResponse> call(Prompt prompt) {
 		// Before moving any further, build the final request Prompt,
 		// merging runtime and default options.
 		Prompt requestPrompt = buildRequestPrompt(prompt);
-		return this.internalCall(requestPrompt, null);
+		return this.internalCallReactive(requestPrompt, null);
 	}
 
 	public ChatResponse internalCall(Prompt prompt, ChatResponse previousChatResponse) {

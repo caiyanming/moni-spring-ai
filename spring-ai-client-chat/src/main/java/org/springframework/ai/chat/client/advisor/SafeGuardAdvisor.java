@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -75,10 +76,10 @@ public class SafeGuardAdvisor implements CallAdvisor, StreamAdvisor {
 	}
 
 	@Override
-	public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+	public Mono<ChatClientResponse> adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
 		if (!CollectionUtils.isEmpty(this.sensitiveWords)
 				&& this.sensitiveWords.stream().anyMatch(w -> chatClientRequest.prompt().getContents().contains(w))) {
-			return createFailureResponse(chatClientRequest);
+			return Mono.just(createFailureResponse(chatClientRequest));
 		}
 
 		return callAdvisorChain.nextCall(chatClientRequest);

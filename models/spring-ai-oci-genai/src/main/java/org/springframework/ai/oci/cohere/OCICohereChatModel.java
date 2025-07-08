@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
+import reactor.core.publisher.Mono;
+
 import com.oracle.bmc.generativeaiinference.GenerativeAiInference;
 import com.oracle.bmc.generativeaiinference.model.BaseChatRequest;
 import com.oracle.bmc.generativeaiinference.model.BaseChatResponse;
@@ -103,21 +105,23 @@ public class OCICohereChatModel implements ChatModel {
 	}
 
 	@Override
-	public ChatResponse call(Prompt prompt) {
-		Prompt requestPrompt = this.buildRequestPrompt(prompt);
-		ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
-			.prompt(requestPrompt)
-			.provider(AiProvider.OCI_GENAI.value())
-			.build();
+	public Mono<ChatResponse> call(Prompt prompt) {
+		return Mono.fromCallable(() -> {
+			Prompt requestPrompt = this.buildRequestPrompt(prompt);
+			ChatModelObservationContext observationContext = ChatModelObservationContext.builder()
+				.prompt(requestPrompt)
+				.provider(AiProvider.OCI_GENAI.value())
+				.build();
 
-		return ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
-			.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
-					this.observationRegistry)
-			.observe(() -> {
-				ChatResponse chatResponse = doChatRequest(prompt);
-				observationContext.setResponse(chatResponse);
-				return chatResponse;
-			});
+			return ChatModelObservationDocumentation.CHAT_MODEL_OPERATION
+				.observation(this.observationConvention, DEFAULT_OBSERVATION_CONVENTION, () -> observationContext,
+						this.observationRegistry)
+				.observe(() -> {
+					ChatResponse chatResponse = doChatRequest(prompt);
+					observationContext.setResponse(chatResponse);
+					return chatResponse;
+				});
+		});
 	}
 
 	Prompt buildRequestPrompt(Prompt prompt) {

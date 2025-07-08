@@ -117,7 +117,7 @@ public final class VectorStoreChatMemoryAdvisor implements BaseChatMemoryAdvisor
 	}
 
 	@Override
-	public ChatClientRequest before(ChatClientRequest request, AdvisorChain advisorChain) {
+	public Mono<ChatClientRequest> before(ChatClientRequest request, AdvisorChain advisorChain) {
 		String conversationId = getConversationId(request.context(), this.defaultConversationId);
 		String query = request.prompt().getUserMessage() != null ? request.prompt().getUserMessage().getText() : "";
 		int topK = getChatMemoryTopK(request.context());
@@ -127,29 +127,26 @@ public final class VectorStoreChatMemoryAdvisor implements BaseChatMemoryAdvisor
 			.topK(topK)
 			.filterExpression(filter)
 			.build();
-		java.util.List<org.springframework.ai.document.Document> documents = this.vectorStore
-			.similaritySearch(searchRequest);
 
-		String longTermMemory = documents == null ? ""
-				: documents.stream()
-					.map(org.springframework.ai.document.Document::getText)
-					.collect(java.util.stream.Collectors.joining(System.lineSeparator()));
+		return this.vectorStore.similaritySearch(searchRequest).collectList().map(documents -> {
+			String longTermMemory = documents == null ? ""
+					: documents.stream()
+						.map(org.springframework.ai.document.Document::getText)
+						.collect(java.util.stream.Collectors.joining(System.lineSeparator()));
 
-		org.springframework.ai.chat.messages.SystemMessage systemMessage = request.prompt().getSystemMessage();
-		String augmentedSystemText = this.systemPromptTemplate
-			.render(java.util.Map.of("instructions", systemMessage.getText(), "long_term_memory", longTermMemory));
+			org.springframework.ai.chat.messages.SystemMessage systemMessage = request.prompt().getSystemMessage();
+			String augmentedSystemText = this.systemPromptTemplate
+				.render(java.util.Map.of("instructions", systemMessage.getText(), "long_term_memory", longTermMemory));
 
-		ChatClientRequest processedChatClientRequest = request.mutate()
-			.prompt(request.prompt().augmentSystemMessage(augmentedSystemText))
-			.build();
-
-		org.springframework.ai.chat.messages.UserMessage userMessage = processedChatClientRequest.prompt()
-			.getUserMessage();
-		if (userMessage != null) {
-			this.vectorStore.write(toDocuments(java.util.List.of(userMessage), conversationId));
-		}
-
-		return processedChatClientRequest;
+			return request.mutate().prompt(request.prompt().augmentSystemMessage(augmentedSystemText)).build();
+		}).flatMap(processedRequest -> {
+			org.springframework.ai.chat.messages.UserMessage userMessage = processedRequest.prompt().getUserMessage();
+			if (userMessage != null) {
+				return this.vectorStore.add(toDocuments(java.util.List.of(userMessage), conversationId))
+					.thenReturn(processedRequest);
+			}
+			return Mono.just(processedRequest);
+		});
 	}
 
 	private int getChatMemoryTopK(Map<String, Object> context) {
@@ -157,7 +154,7 @@ public final class VectorStoreChatMemoryAdvisor implements BaseChatMemoryAdvisor
 	}
 
 	@Override
-	public ChatClientResponse after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
+	public Mono<ChatClientResponse> after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
 		List<Message> assistantMessages = new ArrayList<>();
 		if (chatClientResponse.chatResponse() != null) {
 			assistantMessages = chatClientResponse.chatResponse()
@@ -166,9 +163,10 @@ public final class VectorStoreChatMemoryAdvisor implements BaseChatMemoryAdvisor
 				.map(g -> (Message) g.getOutput())
 				.toList();
 		}
-		this.vectorStore.write(toDocuments(assistantMessages,
-				this.getConversationId(chatClientResponse.context(), this.defaultConversationId)));
-		return chatClientResponse;
+		return this.vectorStore
+			.add(toDocuments(assistantMessages,
+					this.getConversationId(chatClientResponse.context(), this.defaultConversationId)))
+			.thenReturn(chatClientResponse);
 	}
 
 	@Override
@@ -179,7 +177,7 @@ public final class VectorStoreChatMemoryAdvisor implements BaseChatMemoryAdvisor
 		// Process the request with the before method
 		return Mono.just(chatClientRequest)
 			.publishOn(scheduler)
-			.map(request -> this.before(request, streamAdvisorChain))
+			.flatMap(request -> this.before(request, streamAdvisorChain))
 			.flatMapMany(streamAdvisorChain::nextStream)
 			.transform(flux -> new ChatClientMessageAggregator().aggregateChatClientResponse(flux,
 					response -> this.after(response, streamAdvisorChain)));

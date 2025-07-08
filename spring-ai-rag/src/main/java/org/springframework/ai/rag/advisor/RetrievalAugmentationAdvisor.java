@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -104,52 +105,55 @@ public final class RetrievalAugmentationAdvisor implements BaseAdvisor {
 	}
 
 	@Override
-	public ChatClientRequest before(ChatClientRequest chatClientRequest, @Nullable AdvisorChain advisorChain) {
-		Map<String, Object> context = new HashMap<>(chatClientRequest.context());
+	public Mono<ChatClientRequest> before(ChatClientRequest chatClientRequest, @Nullable AdvisorChain advisorChain) {
+		return Mono.fromCallable(() -> {
+			Map<String, Object> context = new HashMap<>(chatClientRequest.context());
 
-		// 0. Create a query from the user text, parameters, and conversation history.
-		Query originalQuery = Query.builder()
-			.text(chatClientRequest.prompt().getUserMessage().getText())
-			.history(chatClientRequest.prompt().getInstructions())
-			.context(context)
-			.build();
+			// 0. Create a query from the user text, parameters, and conversation history.
+			Query originalQuery = Query.builder()
+				.text(chatClientRequest.prompt().getUserMessage().getText())
+				.history(chatClientRequest.prompt().getInstructions())
+				.context(context)
+				.build();
 
-		// 1. Transform original user query based on a chain of query transformers.
-		Query transformedQuery = originalQuery;
-		for (var queryTransformer : this.queryTransformers) {
-			transformedQuery = queryTransformer.apply(transformedQuery);
-		}
+			// 1. Transform original user query based on a chain of query transformers.
+			Query transformedQuery = originalQuery;
+			for (var queryTransformer : this.queryTransformers) {
+				transformedQuery = queryTransformer.apply(transformedQuery);
+			}
 
-		// 2. Expand query into one or multiple queries.
-		List<Query> expandedQueries = this.queryExpander != null ? this.queryExpander.expand(transformedQuery)
-				: List.of(transformedQuery);
+			// 2. Expand query into one or multiple queries.
+			List<Query> expandedQueries = this.queryExpander != null ? this.queryExpander.expand(transformedQuery)
+					: List.of(transformedQuery);
 
-		// 3. Get similar documents for each query.
-		Map<Query, List<List<Document>>> documentsForQuery = expandedQueries.stream()
-			.map(query -> CompletableFuture.supplyAsync(() -> getDocumentsForQuery(query), this.taskExecutor))
-			.toList()
-			.stream()
-			.map(CompletableFuture::join)
-			.collect(Collectors.toMap(Map.Entry::getKey, entry -> List.of(entry.getValue())));
+			// 3. Get similar documents for each query.
+			Map<Query, List<List<Document>>> documentsForQuery = expandedQueries.stream()
+				.map(query -> CompletableFuture.supplyAsync(() -> getDocumentsForQuery(query), this.taskExecutor))
+				.toList()
+				.stream()
+				.map(CompletableFuture::join)
+				.collect(Collectors.toMap(Map.Entry::getKey, entry -> List.of(entry.getValue())));
 
-		// 4. Combine documents retrieved based on multiple queries and from multiple data
-		// sources.
-		List<Document> documents = this.documentJoiner.join(documentsForQuery);
+			// 4. Combine documents retrieved based on multiple queries and from multiple
+			// data
+			// sources.
+			List<Document> documents = this.documentJoiner.join(documentsForQuery);
 
-		// 5. Post-process the documents.
-		for (var documentPostProcessor : this.documentPostProcessors) {
-			documents = documentPostProcessor.process(originalQuery, documents);
-		}
-		context.put(DOCUMENT_CONTEXT, documents);
+			// 5. Post-process the documents.
+			for (var documentPostProcessor : this.documentPostProcessors) {
+				documents = documentPostProcessor.process(originalQuery, documents);
+			}
+			context.put(DOCUMENT_CONTEXT, documents);
 
-		// 5. Augment user query with the document contextual data.
-		Query augmentedQuery = this.queryAugmenter.augment(originalQuery, documents);
+			// 5. Augment user query with the document contextual data.
+			Query augmentedQuery = this.queryAugmenter.augment(originalQuery, documents);
 
-		// 6. Update ChatClientRequest with augmented prompt.
-		return chatClientRequest.mutate()
-			.prompt(chatClientRequest.prompt().augmentUserMessage(augmentedQuery.text()))
-			.context(context)
-			.build();
+			// 6. Update ChatClientRequest with augmented prompt.
+			return chatClientRequest.mutate()
+				.prompt(chatClientRequest.prompt().augmentUserMessage(augmentedQuery.text()))
+				.context(context)
+				.build();
+		});
 	}
 
 	/**
@@ -162,19 +166,21 @@ public final class RetrievalAugmentationAdvisor implements BaseAdvisor {
 	}
 
 	@Override
-	public ChatClientResponse after(ChatClientResponse chatClientResponse, @Nullable AdvisorChain advisorChain) {
-		ChatResponse.Builder chatResponseBuilder;
-		if (chatClientResponse.chatResponse() == null) {
-			chatResponseBuilder = ChatResponse.builder();
-		}
-		else {
-			chatResponseBuilder = ChatResponse.builder().from(chatClientResponse.chatResponse());
-		}
-		chatResponseBuilder.metadata(DOCUMENT_CONTEXT, chatClientResponse.context().get(DOCUMENT_CONTEXT));
-		return ChatClientResponse.builder()
-			.chatResponse(chatResponseBuilder.build())
-			.context(chatClientResponse.context())
-			.build();
+	public Mono<ChatClientResponse> after(ChatClientResponse chatClientResponse, @Nullable AdvisorChain advisorChain) {
+		return Mono.fromCallable(() -> {
+			ChatResponse.Builder chatResponseBuilder;
+			if (chatClientResponse.chatResponse() == null) {
+				chatResponseBuilder = ChatResponse.builder();
+			}
+			else {
+				chatResponseBuilder = ChatResponse.builder().from(chatClientResponse.chatResponse());
+			}
+			chatResponseBuilder.metadata(DOCUMENT_CONTEXT, chatClientResponse.context().get(DOCUMENT_CONTEXT));
+			return ChatClientResponse.builder()
+				.chatResponse(chatResponseBuilder.build())
+				.context(chatClientResponse.context())
+				.build();
+		});
 	}
 
 	@Override

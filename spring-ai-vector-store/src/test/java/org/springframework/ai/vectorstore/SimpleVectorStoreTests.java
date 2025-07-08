@@ -48,7 +48,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
+import java.time.Duration;
 
 class SimpleVectorStoreTests {
 
@@ -73,14 +76,16 @@ class SimpleVectorStoreTests {
 	void shouldAddAndRetrieveDocument() {
 		Document doc = Document.builder().id("1").text("test content").metadata(Map.of("key", "value")).build();
 
-		this.vectorStore.add(List.of(doc));
+		Mono<Void> testFlow = this.vectorStore.add(List.of(doc))
+			.then(this.vectorStore.similaritySearch("test content").collectList().doOnNext(results -> {
+				assertThat(results).hasSize(1).first().satisfies(result -> {
+					assertThat(result.getId()).isEqualTo("1");
+					assertThat(result.getText()).isEqualTo("test content");
+					assertThat(result.getMetadata()).containsEntry("key", "value");
+				});
+			}).then());
 
-		List<Document> results = this.vectorStore.similaritySearch("test content");
-		assertThat(results).hasSize(1).first().satisfies(result -> {
-			assertThat(result.getId()).isEqualTo("1");
-			assertThat(result.getText()).isEqualTo("test content");
-			assertThat(result.getMetadata()).containsEntry("key", "value");
-		});
+		StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(5));
 	}
 
 	@Test
@@ -88,41 +93,55 @@ class SimpleVectorStoreTests {
 		List<Document> docs = Arrays.asList(Document.builder().id("1").text("first").build(),
 				Document.builder().id("2").text("second").build());
 
-		this.vectorStore.add(docs);
+		Mono<Void> testFlow = this.vectorStore.add(docs)
+			.then(this.vectorStore.similaritySearch("first").collectList().doOnNext(results -> {
+				assertThat(results).hasSize(2).extracting(Document::getId).containsExactlyInAnyOrder("1", "2");
+			}).then());
 
-		List<Document> results = this.vectorStore.similaritySearch("first");
-		assertThat(results).hasSize(2).extracting(Document::getId).containsExactlyInAnyOrder("1", "2");
+		StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(5));
 	}
 
 	@Test
 	void shouldHandleEmptyDocumentList() {
-		assertThatThrownBy(() -> this.vectorStore.add(Collections.emptyList()))
-			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("Documents list cannot be empty");
+		StepVerifier.create(this.vectorStore.add(Collections.emptyList()))
+			.expectErrorMatches(throwable -> throwable instanceof IllegalArgumentException
+					&& "Documents list cannot be empty".equals(throwable.getMessage()))
+			.verify(Duration.ofSeconds(5));
 	}
 
 	@Test
 	void shouldHandleNullDocumentList() {
-		assertThatThrownBy(() -> this.vectorStore.add(null)).isInstanceOf(NullPointerException.class)
-			.hasMessage("Documents list cannot be null");
+		// Test that null documents list is properly handled with meaningful error
+		StepVerifier.create(this.vectorStore.add((List<Document>) null))
+			.expectErrorMatches(throwable -> throwable instanceof IllegalArgumentException
+					&& "Documents list cannot be null".equals(throwable.getMessage()))
+			.verify(Duration.ofSeconds(5));
 	}
 
 	@Test
 	void shouldDeleteDocuments() {
 		Document doc = Document.builder().id("1").text("test content").build();
 
-		this.vectorStore.add(List.of(doc));
-		assertThat(this.vectorStore.similaritySearch("test")).hasSize(1);
+		Mono<Void> testFlow = this.vectorStore.add(List.of(doc))
+			.then(this.vectorStore.similaritySearch("test")
+				.collectList()
+				.doOnNext(results -> assertThat(results).hasSize(1))
+				.then())
+			.then(this.vectorStore.delete(List.of("1")))
+			.then(this.vectorStore.similaritySearch("test")
+				.collectList()
+				.doOnNext(results -> assertThat(results).isEmpty())
+				.then());
 
-		this.vectorStore.delete(List.of("1"));
-		assertThat(this.vectorStore.similaritySearch("test")).isEmpty();
+		StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(5));
 	}
 
 	@Test
 	void shouldHandleDeleteOfNonexistentDocument() {
-		this.vectorStore.delete(List.of("nonexistent-id"));
-		// Should not throw exception
-		assertDoesNotThrow(() -> this.vectorStore.delete(List.of("nonexistent-id")));
+		Mono<Void> testFlow = this.vectorStore.delete(List.of("nonexistent-id"))
+			.then(this.vectorStore.delete(List.of("nonexistent-id")));
+
+		StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(5));
 	}
 
 	@Test
@@ -132,12 +151,15 @@ class SimpleVectorStoreTests {
 
 		Document doc = Document.builder().id("1").text("test content").build();
 
-		this.vectorStore.add(List.of(doc));
-
 		SearchRequest request = SearchRequest.builder().query("query").similarityThreshold(0.99f).topK(5).build();
 
-		List<Document> results = this.vectorStore.similaritySearch(request);
-		assertThat(results).isEmpty();
+		Mono<Void> testFlow = this.vectorStore.add(List.of(doc))
+			.then(this.vectorStore.similaritySearch(request)
+				.collectList()
+				.doOnNext(results -> assertThat(results).isEmpty())
+				.then());
+
+		StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(5));
 	}
 
 	@Test
@@ -148,20 +170,21 @@ class SimpleVectorStoreTests {
 			.metadata(new HashMap<>(Map.of("key", "value")))
 			.build();
 
-		this.vectorStore.add(List.of(doc));
-
 		File saveFile = this.tempDir.resolve("vector-store.json").toFile();
-		this.vectorStore.save(saveFile);
-
 		SimpleVectorStore loadedStore = SimpleVectorStore.builder(this.mockEmbeddingModel).build();
-		loadedStore.load(saveFile);
 
-		List<Document> results = loadedStore.similaritySearch("test content");
-		assertThat(results).hasSize(1).first().satisfies(result -> {
-			assertThat(result.getId()).isEqualTo("1");
-			assertThat(result.getText()).isEqualTo("test content");
-			assertThat(result.getMetadata()).containsEntry("key", "value");
-		});
+		Mono<Void> testFlow = this.vectorStore.add(List.of(doc))
+			.doOnSuccess(v -> this.vectorStore.save(saveFile))
+			.doOnSuccess(v -> loadedStore.load(saveFile))
+			.then(loadedStore.similaritySearch("test content").collectList().doOnNext(results -> {
+				assertThat(results).hasSize(1).first().satisfies(result -> {
+					assertThat(result.getId()).isEqualTo("1");
+					assertThat(result.getText()).isEqualTo("test content");
+					assertThat(result.getMetadata()).containsEntry("key", "value");
+				});
+			}).then());
+
+		StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(5));
 	}
 
 	@Test
@@ -183,41 +206,30 @@ class SimpleVectorStoreTests {
 	}
 
 	@Test
-	void shouldHandleConcurrentOperations() throws InterruptedException {
+	void shouldHandleConcurrentOperations() {
 		int numThreads = 10;
-		Thread[] threads = new Thread[numThreads];
-
+		List<Document> docs = Arrays.asList();
 		for (int i = 0; i < numThreads; i++) {
-			final String id = String.valueOf(i);
-			threads[i] = new Thread(() -> {
-				Document doc = Document.builder().id(id).text("content " + id).build();
-				this.vectorStore.add(List.of(doc));
-			});
-			threads[i].start();
-		}
-
-		for (Thread thread : threads) {
-			thread.join();
+			docs = new java.util.ArrayList<>(docs);
+			docs.add(Document.builder().id(String.valueOf(i)).text("content " + i).build());
 		}
 
 		SearchRequest request = SearchRequest.builder().query("test").topK(numThreads).build();
-
-		List<Document> results = this.vectorStore.similaritySearch(request);
-
-		assertThat(results).hasSize(numThreads);
-
-		// Verify all documents were properly added
-		Set<String> resultIds = results.stream().map(Document::getId).collect(Collectors.toSet());
-
 		Set<String> expectedIds = new java.util.HashSet<>();
 		for (int i = 0; i < numThreads; i++) {
 			expectedIds.add(String.valueOf(i));
 		}
 
-		assertThat(resultIds).containsExactlyInAnyOrderElementsOf(expectedIds);
+		Mono<Void> testFlow = Flux.fromIterable(docs)
+			.flatMap(doc -> this.vectorStore.add(List.of(doc)))
+			.then(this.vectorStore.similaritySearch(request).collectList().doOnNext(results -> {
+				assertThat(results).hasSize(numThreads);
+				Set<String> resultIds = results.stream().map(Document::getId).collect(Collectors.toSet());
+				assertThat(resultIds).containsExactlyInAnyOrderElementsOf(expectedIds);
+				results.forEach(doc -> assertThat(doc.getText()).isEqualTo("content " + doc.getId()));
+			}).then());
 
-		// Verify content integrity
-		results.forEach(doc -> assertThat(doc.getText()).isEqualTo("content " + doc.getId()));
+		StepVerifier.create(testFlow).expectComplete().verify(Duration.ofSeconds(10));
 	}
 
 	@Test
@@ -270,12 +282,13 @@ class SimpleVectorStoreTests {
 	@Test
 	void shouldFailNonTextDocuments() {
 		Media media = new Media(MimeType.valueOf("image/png"), new ByteArrayResource(new byte[] { 0x00 }));
-
 		Document imgDoc = Document.builder().media(media).metadata(Map.of("fileName", "pixel.png")).build();
 
-		Exception exception = assertThrows(IllegalArgumentException.class, () -> this.vectorStore.add(List.of(imgDoc)));
-		assertEquals("Only text documents are supported for now. One of the documents contains non-text content.",
-				exception.getMessage());
+		StepVerifier.create(this.vectorStore.add(List.of(imgDoc)))
+			.expectErrorMatches(throwable -> throwable instanceof IllegalArgumentException
+					&& "Only text documents are supported for now. One of the documents contains non-text content."
+						.equals(throwable.getMessage()))
+			.verify(Duration.ofSeconds(5));
 	}
 
 }

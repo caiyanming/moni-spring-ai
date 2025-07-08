@@ -60,7 +60,7 @@ public class TransformersEmbeddingModelObservationTests {
 
 		EmbeddingRequest embeddingRequest = new EmbeddingRequest(List.of("Here comes the sun"), options);
 
-		EmbeddingResponse embeddingResponse = this.embeddingModel.call(embeddingRequest);
+		EmbeddingResponse embeddingResponse = this.embeddingModel.call(embeddingRequest).block();
 		assertThat(embeddingResponse.getResults()).isNotEmpty();
 
 		EmbeddingResponseMetadata responseMetadata = embeddingResponse.getMetadata();

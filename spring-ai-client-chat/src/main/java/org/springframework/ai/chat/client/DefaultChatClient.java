@@ -32,6 +32,7 @@ import io.micrometer.observation.Observation;
 import io.micrometer.observation.ObservationRegistry;
 import io.micrometer.observation.contextpropagation.ObservationThreadLocalAccessor;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.advisor.ChatModelCallAdvisor;
 import org.springframework.ai.chat.client.advisor.ChatModelStreamAdvisor;
@@ -362,92 +363,91 @@ public class DefaultChatClient implements ChatClient {
 		}
 
 		@Override
-		public <T> ResponseEntity<ChatResponse, T> responseEntity(Class<T> type) {
+		public <T> Mono<ResponseEntity<ChatResponse, T>> responseEntity(Class<T> type) {
 			Assert.notNull(type, "type cannot be null");
 			return doResponseEntity(new BeanOutputConverter<>(type));
 		}
 
 		@Override
-		public <T> ResponseEntity<ChatResponse, T> responseEntity(ParameterizedTypeReference<T> type) {
+		public <T> Mono<ResponseEntity<ChatResponse, T>> responseEntity(ParameterizedTypeReference<T> type) {
 			Assert.notNull(type, "type cannot be null");
 			return doResponseEntity(new BeanOutputConverter<>(type));
 		}
 
 		@Override
-		public <T> ResponseEntity<ChatResponse, T> responseEntity(
+		public <T> Mono<ResponseEntity<ChatResponse, T>> responseEntity(
 				StructuredOutputConverter<T> structuredOutputConverter) {
 			Assert.notNull(structuredOutputConverter, "structuredOutputConverter cannot be null");
 			return doResponseEntity(structuredOutputConverter);
 		}
 
-		protected <T> ResponseEntity<ChatResponse, T> doResponseEntity(StructuredOutputConverter<T> outputConverter) {
+		protected <T> Mono<ResponseEntity<ChatResponse, T>> doResponseEntity(
+				StructuredOutputConverter<T> outputConverter) {
 			Assert.notNull(outputConverter, "structuredOutputConverter cannot be null");
-			var chatResponse = doGetObservableChatClientResponse(this.request, outputConverter.getFormat())
-				.chatResponse();
-			var responseContent = getContentFromChatResponse(chatResponse);
-			if (responseContent == null) {
-				return new ResponseEntity<>(chatResponse, null);
-			}
-			T entity = outputConverter.convert(responseContent);
-			return new ResponseEntity<>(chatResponse, entity);
+			return doGetObservableChatClientResponse(this.request, outputConverter.getFormat())
+				.map(ChatClientResponse::chatResponse)
+				.map(chatResponse -> {
+					var responseContent = getContentFromChatResponse(chatResponse);
+					if (responseContent == null) {
+						return new ResponseEntity<>(chatResponse, null);
+					}
+					T entity = outputConverter.convert(responseContent);
+					return new ResponseEntity<>(chatResponse, entity);
+				});
 		}
 
 		@Override
-		@Nullable
-		public <T> T entity(ParameterizedTypeReference<T> type) {
+		public <T> Mono<T> entity(ParameterizedTypeReference<T> type) {
 			Assert.notNull(type, "type cannot be null");
 			return doSingleWithBeanOutputConverter(new BeanOutputConverter<>(type));
 		}
 
 		@Override
-		@Nullable
-		public <T> T entity(StructuredOutputConverter<T> structuredOutputConverter) {
+		public <T> Mono<T> entity(StructuredOutputConverter<T> structuredOutputConverter) {
 			Assert.notNull(structuredOutputConverter, "structuredOutputConverter cannot be null");
 			return doSingleWithBeanOutputConverter(structuredOutputConverter);
 		}
 
 		@Override
-		@Nullable
-		public <T> T entity(Class<T> type) {
+		public <T> Mono<T> entity(Class<T> type) {
 			Assert.notNull(type, "type cannot be null");
 			var outputConverter = new BeanOutputConverter<>(type);
 			return doSingleWithBeanOutputConverter(outputConverter);
 		}
 
-		@Nullable
-		private <T> T doSingleWithBeanOutputConverter(StructuredOutputConverter<T> outputConverter) {
-			var chatResponse = doGetObservableChatClientResponse(this.request, outputConverter.getFormat())
-				.chatResponse();
-			var stringResponse = getContentFromChatResponse(chatResponse);
-			if (stringResponse == null) {
-				return null;
-			}
-			return outputConverter.convert(stringResponse);
+		private <T> Mono<T> doSingleWithBeanOutputConverter(StructuredOutputConverter<T> outputConverter) {
+			return doGetObservableChatClientResponse(this.request, outputConverter.getFormat())
+				.map(ChatClientResponse::chatResponse)
+				.map(DefaultCallResponseSpec::getContentFromChatResponse)
+				.map(stringResponse -> {
+					if (stringResponse == null) {
+						return null;
+					}
+					return outputConverter.convert(stringResponse);
+				});
 		}
 
 		@Override
-		public ChatClientResponse chatClientResponse() {
+		public Mono<ChatClientResponse> chatClientResponse() {
 			return doGetObservableChatClientResponse(this.request);
 		}
 
 		@Override
-		@Nullable
-		public ChatResponse chatResponse() {
-			return doGetObservableChatClientResponse(this.request).chatResponse();
+		public Mono<ChatResponse> chatResponse() {
+			return doGetObservableChatClientResponse(this.request).map(ChatClientResponse::chatResponse);
 		}
 
 		@Override
-		@Nullable
-		public String content() {
-			ChatResponse chatResponse = doGetObservableChatClientResponse(this.request).chatResponse();
-			return getContentFromChatResponse(chatResponse);
+		public Mono<String> content() {
+			return doGetObservableChatClientResponse(this.request).map(ChatClientResponse::chatResponse)
+				.map(DefaultCallResponseSpec::getContentFromChatResponse);
 		}
 
-		private ChatClientResponse doGetObservableChatClientResponse(ChatClientRequest chatClientRequest) {
+		private Mono<ChatClientResponse> doGetObservableChatClientResponse(ChatClientRequest chatClientRequest) {
 			return doGetObservableChatClientResponse(chatClientRequest, null);
 		}
 
-		private ChatClientResponse doGetObservableChatClientResponse(ChatClientRequest chatClientRequest,
+		private Mono<ChatClientResponse> doGetObservableChatClientResponse(ChatClientRequest chatClientRequest,
 				@Nullable String outputFormat) {
 
 			if (outputFormat != null) {
@@ -461,16 +461,10 @@ public class DefaultChatClient implements ChatClient {
 				.format(outputFormat)
 				.build();
 
-			var observation = ChatClientObservationDocumentation.AI_CHAT_CLIENT.observation(this.observationConvention,
-					DEFAULT_CHAT_CLIENT_OBSERVATION_CONVENTION, () -> observationContext, this.observationRegistry);
-
-			// CHECKSTYLE:OFF
-			var chatClientResponse = observation.observe(() -> {
-				// Apply the advisor chain that terminates with the ChatModelCallAdvisor.
-				return this.advisorChain.nextCall(chatClientRequest);
-			});
-			// CHECKSTYLE:ON
-			return chatClientResponse != null ? chatClientResponse : ChatClientResponse.builder().build();
+			// Apply the advisor chain that terminates with the ChatModelCallAdvisor.
+			return this.advisorChain.nextCall(chatClientRequest)
+				.map(chatClientResponse -> chatClientResponse != null ? chatClientResponse
+						: ChatClientResponse.builder().build());
 		}
 
 		@Nullable

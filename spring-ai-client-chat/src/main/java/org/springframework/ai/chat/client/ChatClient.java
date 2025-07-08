@@ -24,6 +24,7 @@ import java.util.function.Consumer;
 
 import io.micrometer.observation.ObservationRegistry;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.advisor.api.Advisor;
 import org.springframework.ai.chat.client.observation.ChatClientObservationConvention;
@@ -147,28 +148,24 @@ public interface ChatClient {
 
 	interface CallResponseSpec {
 
-		@Nullable
-		<T> T entity(ParameterizedTypeReference<T> type);
+		<T> Mono<T> entity(ParameterizedTypeReference<T> type);
 
-		@Nullable
-		<T> T entity(StructuredOutputConverter<T> structuredOutputConverter);
+		<T> Mono<T> entity(StructuredOutputConverter<T> structuredOutputConverter);
 
-		@Nullable
-		<T> T entity(Class<T> type);
+		<T> Mono<T> entity(Class<T> type);
 
-		ChatClientResponse chatClientResponse();
+		Mono<ChatClientResponse> chatClientResponse();
 
-		@Nullable
-		ChatResponse chatResponse();
+		Mono<ChatResponse> chatResponse();
 
-		@Nullable
-		String content();
+		Mono<String> content();
 
-		<T> ResponseEntity<ChatResponse, T> responseEntity(Class<T> type);
+		<T> Mono<ResponseEntity<ChatResponse, T>> responseEntity(Class<T> type);
 
-		<T> ResponseEntity<ChatResponse, T> responseEntity(ParameterizedTypeReference<T> type);
+		<T> Mono<ResponseEntity<ChatResponse, T>> responseEntity(ParameterizedTypeReference<T> type);
 
-		<T> ResponseEntity<ChatResponse, T> responseEntity(StructuredOutputConverter<T> structuredOutputConverter);
+		<T> Mono<ResponseEntity<ChatResponse, T>> responseEntity(
+				StructuredOutputConverter<T> structuredOutputConverter);
 
 	}
 
@@ -184,11 +181,11 @@ public interface ChatClient {
 
 	interface CallPromptResponseSpec {
 
-		String content();
+		Mono<String> content();
 
-		List<String> contents();
+		Mono<List<String>> contents();
 
-		ChatResponse chatResponse();
+		Mono<ChatResponse> chatResponse();
 
 	}
 

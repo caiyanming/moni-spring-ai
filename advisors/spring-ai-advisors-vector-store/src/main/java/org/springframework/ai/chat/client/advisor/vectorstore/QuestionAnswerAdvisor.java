@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 
@@ -109,48 +110,50 @@ public class QuestionAnswerAdvisor implements BaseAdvisor {
 	}
 
 	@Override
-	public ChatClientRequest before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain) {
+	public Mono<ChatClientRequest> before(ChatClientRequest chatClientRequest, AdvisorChain advisorChain) {
 		// 1. Search for similar documents in the vector store.
 		var searchRequestToUse = SearchRequest.from(this.searchRequest)
 			.query(chatClientRequest.prompt().getUserMessage().getText())
 			.filterExpression(doGetFilterExpression(chatClientRequest.context()))
 			.build();
 
-		List<Document> documents = this.vectorStore.similaritySearch(searchRequestToUse);
+		return this.vectorStore.similaritySearch(searchRequestToUse).collectList().map(documents -> {
+			// 2. Create the context from the documents.
+			Map<String, Object> context = new HashMap<>(chatClientRequest.context());
+			context.put(RETRIEVED_DOCUMENTS, documents);
 
-		// 2. Create the context from the documents.
-		Map<String, Object> context = new HashMap<>(chatClientRequest.context());
-		context.put(RETRIEVED_DOCUMENTS, documents);
+			String documentContext = documents == null ? ""
+					: documents.stream().map(Document::getText).collect(Collectors.joining(System.lineSeparator()));
 
-		String documentContext = documents == null ? ""
-				: documents.stream().map(Document::getText).collect(Collectors.joining(System.lineSeparator()));
+			// 3. Augment the user prompt with the document context.
+			UserMessage userMessage = chatClientRequest.prompt().getUserMessage();
+			String augmentedUserText = this.promptTemplate
+				.render(Map.of("query", userMessage.getText(), "question_answer_context", documentContext));
 
-		// 3. Augment the user prompt with the document context.
-		UserMessage userMessage = chatClientRequest.prompt().getUserMessage();
-		String augmentedUserText = this.promptTemplate
-			.render(Map.of("query", userMessage.getText(), "question_answer_context", documentContext));
-
-		// 4. Update ChatClientRequest with augmented prompt.
-		return chatClientRequest.mutate()
-			.prompt(chatClientRequest.prompt().augmentUserMessage(augmentedUserText))
-			.context(context)
-			.build();
+			// 4. Update ChatClientRequest with augmented prompt.
+			return chatClientRequest.mutate()
+				.prompt(chatClientRequest.prompt().augmentUserMessage(augmentedUserText))
+				.context(context)
+				.build();
+		});
 	}
 
 	@Override
-	public ChatClientResponse after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
-		ChatResponse.Builder chatResponseBuilder;
-		if (chatClientResponse.chatResponse() == null) {
-			chatResponseBuilder = ChatResponse.builder();
-		}
-		else {
-			chatResponseBuilder = ChatResponse.builder().from(chatClientResponse.chatResponse());
-		}
-		chatResponseBuilder.metadata(RETRIEVED_DOCUMENTS, chatClientResponse.context().get(RETRIEVED_DOCUMENTS));
-		return ChatClientResponse.builder()
-			.chatResponse(chatResponseBuilder.build())
-			.context(chatClientResponse.context())
-			.build();
+	public Mono<ChatClientResponse> after(ChatClientResponse chatClientResponse, AdvisorChain advisorChain) {
+		return Mono.fromCallable(() -> {
+			ChatResponse.Builder chatResponseBuilder;
+			if (chatClientResponse.chatResponse() == null) {
+				chatResponseBuilder = ChatResponse.builder();
+			}
+			else {
+				chatResponseBuilder = ChatResponse.builder().from(chatClientResponse.chatResponse());
+			}
+			chatResponseBuilder.metadata(RETRIEVED_DOCUMENTS, chatClientResponse.context().get(RETRIEVED_DOCUMENTS));
+			return ChatClientResponse.builder()
+				.chatResponse(chatResponseBuilder.build())
+				.context(chatClientResponse.context())
+				.build();
+		});
 	}
 
 	@Nullable

@@ -39,6 +39,7 @@ import ai.onnxruntime.OrtSession;
 import io.micrometer.observation.ObservationRegistry;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.document.MetadataMode;
@@ -255,36 +256,38 @@ public class TransformersEmbeddingModel extends AbstractEmbeddingModel implement
 	}
 
 	@Override
-	public float[] embed(String text) {
-		return embed(List.of(text)).get(0);
+	public Mono<float[]> embed(String text) {
+		return embed(List.of(text)).map(list -> list.get(0));
 	}
 
 	@Override
-	public float[] embed(Document document) {
+	public Mono<float[]> embed(Document document) {
 		return this.embed(document.getFormattedContent(this.metadataMode));
 	}
 
 	@Override
-	public EmbeddingResponse embedForResponse(List<String> texts) {
-		List<Embedding> data = new ArrayList<>();
-		List<float[]> embed = this.embed(texts);
-		for (int i = 0; i < embed.size(); i++) {
-			data.add(new Embedding(embed.get(i), i));
-		}
-		return new EmbeddingResponse(data);
+	public Mono<EmbeddingResponse> embedForResponse(List<String> texts) {
+		return embed(texts).map(embedList -> {
+			List<Embedding> data = new ArrayList<>();
+			for (int i = 0; i < embedList.size(); i++) {
+				data.add(new Embedding(embedList.get(i), i));
+			}
+			return new EmbeddingResponse(data);
+		});
 	}
 
 	@Override
-	public List<float[]> embed(List<String> texts) {
+	public Mono<List<float[]>> embed(List<String> texts) {
 		return this.call(new EmbeddingRequest(texts, EmbeddingOptionsBuilder.builder().build()))
-			.getResults()
-			.stream()
-			.map(e -> e.getOutput())
-			.toList();
+			.map(response -> response.getResults().stream().map(e -> e.getOutput()).toList());
 	}
 
 	@Override
-	public EmbeddingResponse call(EmbeddingRequest request) {
+	public Mono<EmbeddingResponse> call(EmbeddingRequest request) {
+		return Mono.fromCallable(() -> callSync(request));
+	}
+
+	private EmbeddingResponse callSync(EmbeddingRequest request) {
 
 		var observationContext = EmbeddingModelObservationContext.builder()
 			.embeddingRequest(request)

@@ -19,6 +19,8 @@ package org.springframework.ai.chat.evaluation;
 import java.util.Collections;
 import java.util.Map;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.ai.evaluation.EvaluationRequest;
@@ -68,23 +70,22 @@ public class RelevancyEvaluator implements Evaluator {
 	}
 
 	@Override
-	public EvaluationResponse evaluate(EvaluationRequest evaluationRequest) {
+	public Mono<EvaluationResponse> evaluate(EvaluationRequest evaluationRequest) {
 		var response = evaluationRequest.getResponseContent();
 		var context = doGetSupportingData(evaluationRequest);
 
 		var userMessage = this.promptTemplate
 			.render(Map.of("query", evaluationRequest.getUserText(), "response", response, "context", context));
 
-		String evaluationResponse = this.chatClientBuilder.build().prompt().user(userMessage).call().content();
-
-		boolean passing = false;
-		float score = 0;
-		if (evaluationResponse != null && evaluationResponse.toLowerCase().contains("yes")) {
-			passing = true;
-			score = 1;
-		}
-
-		return new EvaluationResponse(passing, score, "", Collections.emptyMap());
+		return this.chatClientBuilder.build().prompt().user(userMessage).call().content().map(evaluationResponse -> {
+			boolean passing = false;
+			float score = 0;
+			if (evaluationResponse != null && evaluationResponse.toLowerCase().contains("yes")) {
+				passing = true;
+				score = 1;
+			}
+			return new EvaluationResponse(passing, score, "", Collections.emptyMap());
+		});
 	}
 
 	public static Builder builder() {

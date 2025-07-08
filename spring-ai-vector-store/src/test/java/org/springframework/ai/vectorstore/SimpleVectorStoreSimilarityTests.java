@@ -16,10 +16,14 @@
 
 package org.springframework.ai.vectorstore;
 
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
 
 import org.junit.jupiter.api.Test;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.document.Document;
 
@@ -39,11 +43,22 @@ public class SimpleVectorStoreSimilarityTests {
 
 		SimpleVectorStoreContent storeContent = new SimpleVectorStoreContent("1", "hello, how are you?", metadata,
 				testEmbedding);
-		Document document = storeContent.toDocument(0.6);
-		assertThat(document).isNotNull();
-		assertThat(document.getId()).isEqualTo("1");
-		assertThat(document.getText()).isEqualTo("hello, how are you?");
-		assertThat(document.getMetadata().get("foo")).isEqualTo("bar");
+
+		// Convert to reactive pattern using Mono
+		Mono<Document> documentMono = Mono.fromCallable(() -> storeContent.toDocument(0.6)).doOnNext(document -> {
+			assertThat(document).isNotNull();
+			assertThat(document.getId()).isEqualTo("1");
+			assertThat(document.getText()).isEqualTo("hello, how are you?");
+			assertThat(document.getMetadata().get("foo")).isEqualTo("bar");
+		});
+
+		// Use StepVerifier to test the reactive chain
+		StepVerifier.create(documentMono)
+			.expectNextMatches(document -> document != null && "1".equals(document.getId())
+					&& "hello, how are you?".equals(document.getText())
+					&& "bar".equals(document.getMetadata().get("foo")))
+			.expectComplete()
+			.verify(Duration.ofSeconds(5));
 	}
 
 }
