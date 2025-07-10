@@ -31,7 +31,7 @@ class ChatClientExtensionsTests {
 	fun responseEntity() {
 		val crs = mockk<ChatClient.CallResponseSpec>()
 		val re = mockk<ResponseEntity<ChatResponse, Joke>>()
-		every { crs.responseEntity<Joke>() } returns re
+		every { crs.responseEntity<Joke>() } returns reactor.core.publisher.Mono.just(re)
 		crs.responseEntity<Joke>()
 		verify { crs.responseEntity(object : ParameterizedTypeReference<Joke>() {}) }
 	}
@@ -40,7 +40,7 @@ class ChatClientExtensionsTests {
 	fun entity() {
 		val crs = mockk<ChatClient.CallResponseSpec>()
 		val joke =  mockk<Joke>()
-		every { crs.entity(any<ParameterizedTypeReference<Joke>>()) } returns joke 
+		every { crs.entity(any<ParameterizedTypeReference<Joke>>()) } returns reactor.core.publisher.Mono.just(joke) 
 		crs.entity<Joke>()
 		verify { crs.entity(object : ParameterizedTypeReference<Joke>(){}) }
 	}
