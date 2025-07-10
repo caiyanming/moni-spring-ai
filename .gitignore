@@ -47,3 +47,6 @@ shell.log
 .devcontainer
 
 qodana.yaml
+
+# Maven settings with credentials
+settings.xml
