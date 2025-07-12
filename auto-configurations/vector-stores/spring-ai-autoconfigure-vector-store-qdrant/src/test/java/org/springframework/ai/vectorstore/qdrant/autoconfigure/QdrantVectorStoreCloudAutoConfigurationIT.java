@@ -22,13 +22,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
-import io.qdrant.client.QdrantClient;
+import io.grpc.Grpc;
+import io.grpc.ManagedChannel;
+import io.grpc.TlsChannelCredentials;
+import io.qdrant.client.ApiKeyCredentials;
 import io.qdrant.client.QdrantGrpcClient;
 import io.qdrant.client.grpc.Collections.Distance;
 import io.qdrant.client.grpc.Collections.VectorParams;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -85,20 +89,42 @@ public class QdrantVectorStoreCloudAutoConfigurationIT {
 	@BeforeAll
 	static void setup() throws InterruptedException, ExecutionException {
 
-		// Create a new test collection
-		try (QdrantClient client = new QdrantClient(
-				QdrantGrpcClient.newBuilder(CLOUD_HOST, CLOUD_GRPC_PORT, true).withApiKey(CLOUD_API_KEY).build())) {
+		// Create a new test collection using corrected Qdrant 1.14.1 API
+		String hostPort = CLOUD_HOST + ":" + CLOUD_GRPC_PORT;
+		ManagedChannel channel = Grpc.newChannelBuilder(hostPort, TlsChannelCredentials.create()).build();
 
-			if (client.listCollectionsAsync().get().stream().anyMatch(c -> c.equals(COLLECTION_NAME))) {
-				client.deleteCollectionAsync(COLLECTION_NAME).get();
+		QdrantGrpcClient client = QdrantGrpcClient.newBuilder()
+			.channel(channel)
+			.callCredentials(new ApiKeyCredentials(CLOUD_API_KEY))
+			.build();
+
+		try {
+			// 使用响应式API检查和删除现有集合
+			boolean collectionExists = client.listCollections()
+				.any(description -> description.getName().equals(COLLECTION_NAME))
+				.block();
+
+			if (collectionExists) {
+				client.deleteCollection(COLLECTION_NAME).block();
 			}
 
+			// 创建新集合
 			var vectorParams = VectorParams.newBuilder()
 				.setDistance(Distance.Cosine)
 				.setSize(EMBEDDING_DIMENSION)
 				.build();
 
-			client.createCollectionAsync(COLLECTION_NAME, vectorParams).get();
+			var createRequest = io.qdrant.client.grpc.Collections.CreateCollection.newBuilder()
+				.setCollectionName(COLLECTION_NAME)
+				.setVectorsConfig(
+						io.qdrant.client.grpc.Collections.VectorsConfig.newBuilder().setParams(vectorParams).build())
+				.build();
+
+			client.createCollection(createRequest).block();
+		}
+		finally {
+			client.close();
+			channel.shutdown();
 		}
 	}
 
@@ -118,20 +144,32 @@ public class QdrantVectorStoreCloudAutoConfigurationIT {
 
 			VectorStore vectorStore = context.getBean(VectorStore.class);
 
-			vectorStore.add(this.documents);
+			// 纯响应式测试：添加文档
+			StepVerifier.create(vectorStore.add(this.documents)).verifyComplete();
 
-			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.builder().query("What is Great Depression?").topK(1).build());
+			// 纯响应式测试：相似性搜索
+			StepVerifier
+				.create(vectorStore
+					.similaritySearch(SearchRequest.builder().query("What is Great Depression?").topK(1).build())
+					.collectList())
+				.assertNext(results -> {
+					assertThat(results).hasSize(1);
+					Document resultDoc = results.get(0);
+					assertThat(resultDoc.getId()).isEqualTo(this.documents.get(2).getId());
+					assertThat(resultDoc.getMetadata()).containsKeys("depression", "distance");
+				})
+				.verifyComplete();
 
-			assertThat(results).hasSize(1);
-			Document resultDoc = results.get(0);
-			assertThat(resultDoc.getId()).isEqualTo(this.documents.get(2).getId());
-			assertThat(resultDoc.getMetadata()).containsKeys("depression", "distance");
+			// 纯响应式测试：删除文档
+			StepVerifier.create(vectorStore.delete(this.documents.stream().map(Document::getId).toList()))
+				.verifyComplete();
 
-			// Remove all documents from the store
-			vectorStore.delete(this.documents.stream().map(doc -> doc.getId()).toList());
-			results = vectorStore.similaritySearch(SearchRequest.builder().query("Great Depression").topK(1).build());
-			assertThat(results).hasSize(0);
+			// 纯响应式测试：验证删除结果
+			StepVerifier
+				.create(vectorStore.similaritySearch(SearchRequest.builder().query("Great Depression").topK(1).build())
+					.collectList())
+				.assertNext(results -> assertThat(results).hasSize(0))
+				.verifyComplete();
 		});
 	}
 

@@ -16,7 +16,12 @@
 
 package org.springframework.ai.vectorstore.qdrant.autoconfigure;
 
+import io.grpc.Grpc;
+import io.grpc.InsecureChannelCredentials;
+import io.grpc.ManagedChannel;
+import io.grpc.TlsChannelCredentials;
 import io.micrometer.observation.ObservationRegistry;
+import io.qdrant.client.ApiKeyCredentials;
 import io.qdrant.client.QdrantClient;
 import io.qdrant.client.QdrantGrpcClient;
 
@@ -60,13 +65,27 @@ public class QdrantVectorStoreAutoConfiguration {
 	@ConditionalOnMissingBean
 	public QdrantClient qdrantClient(QdrantVectorStoreProperties properties,
 			QdrantConnectionDetails connectionDetails) {
-		QdrantGrpcClient.Builder grpcClientBuilder = QdrantGrpcClient.newBuilder(connectionDetails.getHost(),
-				connectionDetails.getPort(), properties.isUseTls());
 
-		if (connectionDetails.getApiKey() != null) {
-			grpcClientBuilder.withApiKey(connectionDetails.getApiKey());
+		// Create gRPC ManagedChannel
+		String hostPort = connectionDetails.getHost() + ":" + connectionDetails.getPort();
+		ManagedChannel channel;
+
+		if (properties.isUseTls()) {
+			channel = Grpc.newChannelBuilder(hostPort, TlsChannelCredentials.create()).build();
 		}
-		return new QdrantClient(grpcClientBuilder.build());
+		else {
+			channel = Grpc.newChannelBuilder(hostPort, InsecureChannelCredentials.create()).build();
+		}
+
+		// Create QdrantGrpcClient builder
+		QdrantGrpcClient.Builder grpcClientBuilder = QdrantGrpcClient.newBuilder().channel(channel);
+
+		// Set API key if provided
+		if (connectionDetails.getApiKey() != null) {
+			grpcClientBuilder.callCredentials(new ApiKeyCredentials(connectionDetails.getApiKey()));
+		}
+
+		return grpcClientBuilder.build();
 	}
 
 	@Bean

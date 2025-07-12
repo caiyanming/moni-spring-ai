@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.qdrant.QdrantContainer;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -86,28 +87,40 @@ public class QdrantVectorStoreAutoConfigurationIT {
 			VectorStore vectorStore = context.getBean(VectorStore.class);
 			TestObservationRegistry observationRegistry = context.getBean(TestObservationRegistry.class);
 
-			vectorStore.add(this.documents);
+			// 纯响应式测试：添加文档
+			StepVerifier.create(vectorStore.add(this.documents)).verifyComplete();
 
 			ObservationTestUtil.assertObservationRegistry(observationRegistry, VectorStoreProvider.QDRANT,
 					VectorStoreObservationContext.Operation.ADD);
 			observationRegistry.clear();
 
-			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.builder().query("What is Great Depression?").topK(1).build());
-
-			assertThat(results).hasSize(1);
-			Document resultDoc = results.get(0);
-			assertThat(resultDoc.getId()).isEqualTo(this.documents.get(2).getId());
-			assertThat(resultDoc.getMetadata()).containsKeys("depression", "distance");
+			// 纯响应式测试：相似性搜索
+			StepVerifier
+				.create(vectorStore
+					.similaritySearch(SearchRequest.builder().query("What is Great Depression?").topK(1).build())
+					.collectList())
+				.assertNext(results -> {
+					assertThat(results).hasSize(1);
+					Document resultDoc = results.get(0);
+					assertThat(resultDoc.getId()).isEqualTo(this.documents.get(2).getId());
+					assertThat(resultDoc.getMetadata()).containsKeys("depression", "distance");
+				})
+				.verifyComplete();
 
 			ObservationTestUtil.assertObservationRegistry(observationRegistry, VectorStoreProvider.QDRANT,
 					VectorStoreObservationContext.Operation.QUERY);
 			observationRegistry.clear();
 
-			// Remove all documents from the store
-			vectorStore.delete(this.documents.stream().map(doc -> doc.getId()).toList());
-			results = vectorStore.similaritySearch(SearchRequest.builder().query("Great Depression").topK(1).build());
-			assertThat(results).hasSize(0);
+			// 纯响应式测试：删除文档
+			StepVerifier.create(vectorStore.delete(this.documents.stream().map(Document::getId).toList()))
+				.verifyComplete();
+
+			// 纯响应式测试：验证删除结果
+			StepVerifier
+				.create(vectorStore.similaritySearch(SearchRequest.builder().query("Great Depression").topK(1).build())
+					.collectList())
+				.assertNext(results -> assertThat(results).hasSize(0))
+				.verifyComplete();
 
 			ObservationTestUtil.assertObservationRegistry(observationRegistry, VectorStoreProvider.QDRANT,
 					VectorStoreObservationContext.Operation.DELETE);
