@@ -112,4 +112,33 @@
         </dependency>
     </dependencies>
 
+    <build>
+        <plugins>
+            <!-- Exclude tests that require OpenAI dependencies from compilation -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <testExcludes>
+                        <testExclude>**/QdrantVectorStoreObservationIT.java</testExclude>
+                        <testExclude>**/QdrantVectorStoreIT.java</testExclude>
+                        <testExclude>**/QdrantVectorStoreBuilderTests.java</testExclude>
+                    </testExcludes>
+                </configuration>
+            </plugin>
+            <!-- Exclude tests that require OpenAI dependencies from execution -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/QdrantVectorStoreObservationIT.java</exclude>
+                        <exclude>**/QdrantVectorStoreIT.java</exclude>
+                        <exclude>**/QdrantVectorStoreBuilderTests.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
 </project>
