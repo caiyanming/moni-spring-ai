@@ -16,73 +16,119 @@
 
 package org.springframework.ai.vectorstore.qdrant;
 
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
 import io.qdrant.client.QdrantClient;
-import io.qdrant.client.grpc.Collections.*;
-import io.qdrant.client.grpc.Points.*;
+import io.qdrant.client.grpc.Collections.Distance;
+import io.qdrant.client.grpc.Collections.VectorParams;
+import io.qdrant.client.grpc.Collections.VectorsConfig;
+import io.qdrant.client.grpc.Collections.CreateCollection;
+import io.qdrant.client.grpc.Collections.CollectionDescription;
+import io.qdrant.client.grpc.JsonWithInt.Value;
+import io.qdrant.client.grpc.Points.Filter;
+import io.qdrant.client.grpc.Points.PointId;
+import io.qdrant.client.grpc.Points.PointStruct;
+import io.qdrant.client.grpc.Points.ScoredPoint;
+import io.qdrant.client.grpc.Points.SearchPoints;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 import org.springframework.ai.document.Document;
 import org.springframework.ai.document.DocumentMetadata;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.ai.embedding.EmbeddingOptionsBuilder;
 import org.springframework.ai.model.EmbeddingUtils;
-import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.observation.conventions.VectorStoreProvider;
+import org.springframework.ai.vectorstore.AbstractVectorStoreBuilder;
 import org.springframework.ai.vectorstore.SearchRequest;
-import org.springframework.ai.vectorstore.filter.Filter;
+import org.springframework.ai.vectorstore.observation.AbstractObservationVectorStore;
+import org.springframework.ai.vectorstore.observation.VectorStoreObservationContext;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.util.Assert;
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
-import reactor.core.scheduler.Schedulers;
-
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
 
 /**
- * Pure reactive Qdrant vector store implementation.
+ * Qdrant vectorStore implementation. This store supports creating, updating, deleting,
+ * and similarity searching of documents in a Qdrant collection.
  *
  * <p>
- * This implementation provides a fully reactive interface for Qdrant vector storage
- * operations, eliminating all blocking operations and providing proper backpressure
- * handling for large datasets.
+ * The store uses Qdrant's vector search functionality to persist and query vector
+ * embeddings along with their associated document content and metadata. The
+ * implementation leverages Qdrant's HNSW (Hierarchical Navigable Small World) algorithm
+ * for efficient k-NN search operations.
+ * </p>
  *
  * <p>
- * Key features:
+ * Features:
+ * </p>
  * <ul>
- * <li>Zero blocking calls - fully reactive and non-blocking</li>
- * <li>Backpressure support for large vector datasets</li>
- * <li>Batch operations with configurable batch sizes</li>
- * <li>Automatic collection management</li>
- * <li>Spring AI Document compatibility</li>
+ * <li>Automatic schema initialization with configurable collection creation</li>
+ * <li>Support for cosine similarity distance metric</li>
+ * <li>Metadata filtering using Qdrant's filter expressions</li>
+ * <li>Configurable similarity thresholds for search results</li>
+ * <li>Batch processing support with configurable strategies</li>
+ * <li>Observation and metrics support through Micrometer</li>
  * </ul>
  *
  * <p>
- * Basic usage example: <pre>{@code
+ * Basic usage example:
+ * </p>
+ * <pre>{@code
  * QdrantVectorStore vectorStore = QdrantVectorStore.builder(qdrantClient)
  *     .embeddingModel(embeddingModel)
  *     .initializeSchema(true)
  *     .build();
  *
- * // Add documents reactively
- * vectorStore.add(Flux.just(
+ * // Add documents
+ * vectorStore.add(List.of(
  *     new Document("content1", Map.of("key1", "value1")),
  *     new Document("content2", Map.of("key2", "value2"))
- * )).subscribe();
+ * ));
  *
- * // Search reactively
- * Flux<Document> results = vectorStore.similaritySearch(
+ * // Search with filters
+ * List<Document> results = vectorStore.similaritySearch(
  *     SearchRequest.query("search text")
  *         .withTopK(5)
  *         .withSimilarityThreshold(0.7)
+ *         .withFilterExpression("key1 == 'value1'")
  * );
  * }</pre>
  *
- * @author MoniAI Team
- * @since 2.0.0
+ * <p>
+ * Advanced configuration example:
+ * </p>
+ * <pre>{@code
+ * QdrantVectorStore vectorStore = QdrantVectorStore.builder(qdrantClient, embeddingModel)
+ *     .collectionName("custom-collection")
+ *     .initializeSchema(true)
+ *     .batchingStrategy(new TokenCountBatchingStrategy())
+ *     .observationRegistry(observationRegistry)
+ *     .customObservationConvention(customConvention)
+ *     .build();
+ * }</pre>
+ *
+ * <p>
+ * Requirements:
+ * </p>
+ * <ul>
+ * <li>Running Qdrant instance accessible via gRPC</li>
+ * <li>Collection with vector size matching the embedding model dimensions</li>
+ * </ul>
+ *
+ * @author Anush Shetty
+ * @author Christian Tzolov
+ * @author Eddú Meléndez
+ * @author Josh Long
+ * @author Soby Chacko
+ * @author Thomas Vitale
+ * @since 1.0.0
  */
-public class QdrantVectorStore implements VectorStore, InitializingBean {
+public class QdrantVectorStore extends AbstractObservationVectorStore implements InitializingBean {
 
 	private static final Logger logger = LoggerFactory.getLogger(QdrantVectorStore.class);
 
@@ -92,125 +138,107 @@ public class QdrantVectorStore implements VectorStore, InitializingBean {
 
 	private final QdrantClient qdrantClient;
 
-	private final EmbeddingModel embeddingModel;
-
 	private final String collectionName;
 
 	private final QdrantFilterExpressionConverter filterExpressionConverter = new QdrantFilterExpressionConverter();
 
 	private final boolean initializeSchema;
 
-	private final int batchSize;
-
 	/**
 	 * Protected constructor for creating a QdrantVectorStore instance using the builder
 	 * pattern.
 	 * @param builder the {@link Builder} containing all configuration settings
-	 * @throws IllegalArgumentException if qdrant client or embedding model is missing
+	 * @throws IllegalArgumentException if qdrant client is missing
 	 * @see Builder
 	 * @since 1.0.0
 	 */
 	protected QdrantVectorStore(Builder builder) {
+		super(builder);
+
 		Assert.notNull(builder.qdrantClient, "QdrantClient must not be null");
-		Assert.notNull(builder.embeddingModel, "EmbeddingModel must not be null");
 
 		this.qdrantClient = builder.qdrantClient;
-		this.embeddingModel = builder.embeddingModel;
 		this.collectionName = builder.collectionName;
 		this.initializeSchema = builder.initializeSchema;
-		this.batchSize = builder.batchSize;
 	}
 
 	/**
-	 * Creates a new QdrantVectorStore builder instance.
+	 * Creates a new QdrantBuilder instance. This is the recommended way to instantiate a
+	 * QdrantVectorStore.
 	 * @param qdrantClient the client for interfacing with Qdrant
-	 * @param embeddingModel the embedding model for vectorizing documents
-	 * @return a new QdrantVectorStore builder instance
+	 * @return a new QdrantBuilder instance
 	 */
 	public static Builder builder(QdrantClient qdrantClient, EmbeddingModel embeddingModel) {
 		return new Builder(qdrantClient, embeddingModel);
 	}
 
-	// ========== VectorStore Implementation ==========
-
+	/**
+	 * Adds a list of documents to the vector store.
+	 * @param documents The list of documents to be added.
+	 */
 	@Override
-	public Mono<Void> add(Flux<Document> documents) {
-		return documents.buffer(batchSize) // Process in batches
-			.concatMap(docBatch -> {
-				// Generate embeddings for the batch reactively
-				List<String> texts = docBatch.stream().map(Document::getText).toList();
-				return this.embeddingModel.embed(texts).flatMap(embeddings -> {
-					// Convert to Qdrant points
-					List<PointStruct> points = docBatch.stream().map(document -> {
-						int index = docBatch.indexOf(document);
-						return PointStruct.newBuilder()
-							.setId(io.qdrant.client.PointIdFactory.id(UUID.fromString(document.getId())))
-							.setVectors(io.qdrant.client.VectorsFactory.vectors(embeddings.get(index)))
-							.putAllPayload(toPayload(document))
-							.build();
-					}).toList();
+	public Mono<Void> doAdd(List<Document> documents) {
+		// Compute and assign an embedding to the document.
+		return this.embeddingModel.embed(documents, EmbeddingOptionsBuilder.builder().build(), this.batchingStrategy)
+			.flatMap(embeddings -> {
+				List<PointStruct> points = documents.stream()
+					.map(document -> PointStruct.newBuilder()
+						.setId(io.qdrant.client.PointIdFactory.id(UUID.fromString(document.getId())))
+						.setVectors(
+								io.qdrant.client.VectorsFactory.vectors(embeddings.get(documents.indexOf(document))))
+						.putAllPayload(toPayload(document))
+						.build())
+					.toList();
 
-					// Upsert reactively
-					return qdrantClient.upsert(collectionName, Flux.fromIterable(points));
-				});
+				return this.qdrantClient.upsert(this.collectionName, Flux.fromIterable(points)).then();
 			})
+			.onErrorMap(Exception.class, e -> new RuntimeException("Failed to add documents", e));
+	}
+
+	/**
+	 * Deletes a list of documents by their IDs.
+	 * @param documentIds The list of document IDs to be deleted.
+	 */
+	@Override
+	public Mono<Void> doDelete(List<String> documentIds) {
+		List<PointId> ids = documentIds.stream()
+			.map(id -> io.qdrant.client.PointIdFactory.id(UUID.fromString(id)))
+			.toList();
+		return this.qdrantClient.delete(this.collectionName, Flux.fromIterable(ids))
 			.then()
-			.doOnSuccess(v -> logger.debug("Successfully added documents to collection: {}", collectionName))
-			.doOnError(error -> logger.error("Failed to add documents to collection: {}", collectionName, error));
+			.onErrorMap(Exception.class, e -> new RuntimeException("Failed to delete documents", e));
 	}
 
 	@Override
-	public Mono<Void> delete(Flux<String> documentIds) {
-		return documentIds.map(id -> io.qdrant.client.PointIdFactory.id(UUID.fromString(id)))
-			.buffer(batchSize) // Process in batches
-			.concatMap(idBatch -> qdrantClient.delete(collectionName, Flux.fromIterable(idBatch)))
-			.then()
-			.doOnSuccess(v -> logger.debug("Successfully deleted documents from collection: {}", collectionName))
-			.doOnError(error -> logger.error("Failed to delete documents from collection: {}", collectionName, error));
-	}
-
-	@Override
-	public Mono<Void> delete(Filter.Expression filterExpression) {
+	protected Mono<Void> doDelete(org.springframework.ai.vectorstore.filter.Filter.Expression filterExpression) {
 		Assert.notNull(filterExpression, "Filter expression must not be null");
 
-		return Mono.fromCallable(() -> {
-			io.qdrant.client.grpc.Points.Filter filter = this.filterExpressionConverter
-				.convertExpression(filterExpression);
-			return filter;
-		}).flatMap(filter -> {
-			// Create delete request with filter
-			DeletePoints request = DeletePoints.newBuilder()
-				.setCollectionName(collectionName)
-				.setFilter(filter)
-				.build();
+		Filter filter = this.filterExpressionConverter.convertExpression(filterExpression);
 
-			// Use the raw gRPC delete method for filter-based deletion
-			return Mono.fromCallable(() -> {
-				// Note: This is a simplified implementation
-				// In practice, you'd want to use the reactive client's delete method
-				// that accepts filters directly
-				logger.debug("Deleting documents with filter from collection: {}", collectionName);
-				return null; // Placeholder - implement actual filter deletion
-			}).subscribeOn(Schedulers.boundedElastic());
-		})
-			.then()
-			.doOnSuccess(
-					v -> logger.debug("Successfully deleted filtered documents from collection: {}", collectionName))
-			.doOnError(error -> logger.error("Failed to delete filtered documents from collection: {}", collectionName,
-					error));
+		return this.qdrantClient.deleteByFilter(this.collectionName, filter).flatMap(response -> {
+			if (response.getResult().getStatus() != io.qdrant.client.grpc.Points.UpdateStatus.Completed) {
+				return Mono.error(new IllegalStateException(
+						"Failed to delete documents by filter: " + response.getResult().getStatus()));
+			}
+			logger.debug("Deleted documents matching filter expression");
+			return Mono.<Void>empty();
+		}).doOnError(e -> logger.error("Failed to delete documents by filter: {}", e.getMessage(), e));
 	}
 
+	/**
+	 * Performs a similarity search on the vector store.
+	 * @param request The {@link SearchRequest} object containing the query and other
+	 * search parameters.
+	 * @return A Mono containing the list of documents that are similar to the query.
+	 */
 	@Override
-	public Flux<Document> similaritySearch(SearchRequest request) {
-		// Generate query embedding reactively
-		return this.embeddingModel.embed(request.getQuery()).flatMapMany(queryEmbedding -> {
-			// Build filter
-			io.qdrant.client.grpc.Points.Filter filter = (request.getFilterExpression() != null)
-					? this.filterExpressionConverter.convertExpression(request.getFilterExpression())
-					: io.qdrant.client.grpc.Points.Filter.getDefaultInstance();
+	public Mono<List<Document>> doSimilaritySearch(SearchRequest request) {
+		Filter filter = (request.getFilterExpression() != null)
+				? this.filterExpressionConverter.convertExpression(request.getFilterExpression())
+				: Filter.getDefaultInstance();
 
-			// Build search request
-			SearchPoints searchPoints = SearchPoints.newBuilder()
+		return this.embeddingModel.embed(request.getQuery()).flatMap(queryEmbedding -> {
+			var searchPoints = SearchPoints.newBuilder()
 				.setCollectionName(this.collectionName)
 				.setLimit(request.getTopK())
 				.setWithPayload(io.qdrant.client.WithPayloadSelectorFactory.enable(true))
@@ -219,59 +247,9 @@ public class QdrantVectorStore implements VectorStore, InitializingBean {
 				.setScoreThreshold((float) request.getSimilarityThreshold())
 				.build();
 
-			return qdrantClient.search(searchPoints);
-		})
-			.map(this::toDocument)
-			.doOnComplete(() -> logger.debug("Similarity search completed for collection: {}", collectionName))
-			.doOnError(error -> logger.error("Similarity search failed for collection: {}", collectionName, error));
+			return this.qdrantClient.search(searchPoints).map(this::toDocument).collectList();
+		}).onErrorMap(Exception.class, e -> new RuntimeException("Failed to perform similarity search", e));
 	}
-
-	@Override
-	public Flux<Document> similaritySearchStream(SearchRequest request) {
-		// Use the reactive search stream method for better memory efficiency
-		return this.embeddingModel.embed(request.getQuery()).flatMapMany(queryEmbedding -> {
-			io.qdrant.client.grpc.Points.Filter filter = (request.getFilterExpression() != null)
-					? this.filterExpressionConverter.convertExpression(request.getFilterExpression())
-					: io.qdrant.client.grpc.Points.Filter.getDefaultInstance();
-
-			SearchPoints searchPoints = SearchPoints.newBuilder()
-				.setCollectionName(this.collectionName)
-				.setLimit(request.getTopK())
-				.setWithPayload(io.qdrant.client.WithPayloadSelectorFactory.enable(true))
-				.addAllVector(EmbeddingUtils.toList(queryEmbedding))
-				.setFilter(filter)
-				.setScoreThreshold((float) request.getSimilarityThreshold())
-				.build();
-
-			return qdrantClient.searchStream(searchPoints);
-		}).map(this::toDocument);
-	}
-
-	@Override
-	public Mono<Long> count() {
-		return qdrantClient.countPoints(collectionName, null);
-	}
-
-	@Override
-	public Mono<Long> count(Filter.Expression filterExpression) {
-		return Mono.fromCallable(() -> this.filterExpressionConverter.convertExpression(filterExpression))
-			.flatMap(filter -> qdrantClient.countPoints(collectionName, filter))
-			.subscribeOn(Schedulers.boundedElastic());
-	}
-
-	@Override
-	public Mono<Boolean> isHealthy() {
-		return qdrantClient.healthCheck().map(health -> true).onErrorReturn(false);
-	}
-
-	@Override
-	public <T> Optional<T> getNativeClient() {
-		@SuppressWarnings("unchecked")
-		T client = (T) this.qdrantClient;
-		return Optional.of(client);
-	}
-
-	// ========== Helper Methods ==========
 
 	/**
 	 * Returns {@link Document} using the {@link ScoredPoint}
@@ -295,11 +273,11 @@ public class QdrantVectorStore implements VectorStore, InitializingBean {
 	}
 
 	/**
-	 * Converts the document metadata to a Qdrant payload.
+	 * Converts the document metadata to a Protobuf Struct.
 	 * @param document The document containing metadata.
-	 * @return The metadata as a Qdrant payload map.
+	 * @return The metadata as a Protobuf Struct.
 	 */
-	private Map<String, io.qdrant.client.grpc.JsonWithInt.Value> toPayload(Document document) {
+	private Map<String, Value> toPayload(Document document) {
 		try {
 			var payload = QdrantValueFactory.toValueMap(document.getMetadata());
 			payload.put(CONTENT_FIELD_NAME, io.qdrant.client.ValueFactory.value(document.getText()));
@@ -312,37 +290,52 @@ public class QdrantVectorStore implements VectorStore, InitializingBean {
 
 	@Override
 	public void afterPropertiesSet() throws Exception {
+
 		if (!this.initializeSchema) {
 			return;
 		}
 
-		// Initialize collection reactively but block for compatibility
-		initializeCollectionReactive().block();
-	}
-
-	/**
-	 * Pure reactive version of collection initialization.
-	 * @return a Mono that completes when the collection is initialized
-	 */
-	public Mono<Void> initializeCollectionReactive() {
-		return qdrantClient.collectionExists(collectionName).flatMap(exists -> {
+		// Create the collection if it does not exist.
+		isCollectionExists().flatMap(exists -> {
 			if (!exists) {
 				return this.embeddingModel.dimensions().flatMap(dimensions -> {
 					var vectorParams = VectorParams.newBuilder()
 						.setDistance(Distance.Cosine)
 						.setSize(dimensions)
 						.build();
-
-					var createRequest = CreateCollection.newBuilder()
-						.setCollectionName(collectionName)
-						.setVectorsConfig(vectorParams)
-						.build();
-
-					return qdrantClient.createCollection(createRequest);
-				}).then();
+					return this.qdrantClient
+						.createCollection(CreateCollection.newBuilder()
+							.setCollectionName(this.collectionName)
+							.setVectorsConfig(VectorsConfig.newBuilder().setParams(vectorParams).build())
+							.build())
+						.then();
+				});
 			}
 			return Mono.empty();
-		});
+		}).block();
+	}
+
+	private Mono<Boolean> isCollectionExists() {
+		return this.qdrantClient.listCollections()
+			.map(CollectionDescription::getName)
+			.any(name -> name.equals(this.collectionName))
+			.onErrorMap(Exception.class, e -> new RuntimeException("Failed to check collection existence", e));
+	}
+
+	@Override
+	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
+
+		return VectorStoreObservationContext.builder(VectorStoreProvider.QDRANT.value(), operationName)
+			.dimensions(this.embeddingModel.dimensions().block())
+			.collectionName(this.collectionName);
+
+	}
+
+	@Override
+	public <T> Optional<T> getNativeClient() {
+		@SuppressWarnings("unchecked")
+		T client = (T) this.qdrantClient;
+		return Optional.of(client);
 	}
 
 	/**
@@ -351,30 +344,24 @@ public class QdrantVectorStore implements VectorStore, InitializingBean {
 	 *
 	 * @since 1.0.0
 	 */
-	public static class Builder {
+	public static class Builder extends AbstractVectorStoreBuilder<Builder> {
 
 		private final QdrantClient qdrantClient;
-
-		private final EmbeddingModel embeddingModel;
 
 		private String collectionName = DEFAULT_COLLECTION_NAME;
 
 		private boolean initializeSchema = false;
 
-		private int batchSize = 1000;
-
 		/**
 		 * Creates a new builder instance with the required QdrantClient and
 		 * EmbeddingModel.
 		 * @param qdrantClient the client for Qdrant operations
-		 * @param embeddingModel the embedding model for vectorizing documents
-		 * @throws IllegalArgumentException if qdrantClient or embeddingModel is null
+		 * @throws IllegalArgumentException if qdrantClient is null
 		 */
 		private Builder(QdrantClient qdrantClient, EmbeddingModel embeddingModel) {
+			super(embeddingModel);
 			Assert.notNull(qdrantClient, "QdrantClient must not be null");
-			Assert.notNull(embeddingModel, "EmbeddingModel must not be null");
 			this.qdrantClient = qdrantClient;
-			this.embeddingModel = embeddingModel;
 		}
 
 		/**
@@ -401,23 +388,12 @@ public class QdrantVectorStore implements VectorStore, InitializingBean {
 		}
 
 		/**
-		 * Configures the batch size for processing documents.
-		 * @param batchSize the batch size (defaults to 1000)
-		 * @return this builder instance
-		 * @throws IllegalArgumentException if batchSize is not positive
-		 */
-		public Builder batchSize(int batchSize) {
-			Assert.isTrue(batchSize > 0, "batchSize must be positive");
-			this.batchSize = batchSize;
-			return this;
-		}
-
-		/**
 		 * Builds and returns a new QdrantVectorStore instance with the configured
 		 * settings.
 		 * @return a new QdrantVectorStore instance
 		 * @throws IllegalStateException if the builder configuration is invalid
 		 */
+		@Override
 		public QdrantVectorStore build() {
 			return new QdrantVectorStore(this);
 		}

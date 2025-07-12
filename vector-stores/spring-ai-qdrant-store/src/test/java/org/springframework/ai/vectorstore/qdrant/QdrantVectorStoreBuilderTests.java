@@ -21,7 +21,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import org.springframework.ai.embedding.EmbeddingModel;
-import org.springframework.ai.embedding.TokenCountBatchingStrategy;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -31,6 +30,7 @@ import static org.mockito.Mockito.mock;
  * Tests for {@link QdrantVectorStore.Builder}.
  *
  * @author Mark Pollack
+ * @author MoniAI Team
  */
 class QdrantVectorStoreBuilderTests {
 
@@ -48,10 +48,11 @@ class QdrantVectorStoreBuilderTests {
 	void defaultConfiguration() {
 		QdrantVectorStore vectorStore = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).build();
 
-		// Verify default values
-		assertThat(vectorStore).hasFieldOrPropertyWithValue("collectionName", "vector_store");
+		// Verify default values using the actual field names from our implementation
+		assertThat(vectorStore).hasFieldOrPropertyWithValue("collectionName",
+				QdrantVectorStore.DEFAULT_COLLECTION_NAME);
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("initializeSchema", false);
-		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchingStrategy.class", TokenCountBatchingStrategy.class);
+		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchSize", 1000);
 	}
 
 	@Test
@@ -59,25 +60,26 @@ class QdrantVectorStoreBuilderTests {
 		QdrantVectorStore vectorStore = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel)
 			.collectionName("custom_collection")
 			.initializeSchema(true)
-			.batchingStrategy(new TokenCountBatchingStrategy())
+			.batchSize(500)
 			.build();
 
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("collectionName", "custom_collection");
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("initializeSchema", true);
-		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchingStrategy.class", TokenCountBatchingStrategy.class);
+		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchSize", 500);
 	}
 
 	@Test
 	void nullQdrantClientInConstructorShouldThrowException() {
-		assertThatThrownBy(() -> QdrantVectorStore.builder(null, null)).isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("EmbeddingModel must be configured");
+		assertThatThrownBy(() -> QdrantVectorStore.builder(null, this.embeddingModel))
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("QdrantClient must not be null");
 	}
 
 	@Test
 	void nullEmbeddingModelShouldThrowException() {
-		assertThatThrownBy(() -> QdrantVectorStore.builder(this.qdrantClient, null).build())
+		assertThatThrownBy(() -> QdrantVectorStore.builder(this.qdrantClient, null))
 			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("EmbeddingModel must be configured");
+			.hasMessage("EmbeddingModel must not be null");
 	}
 
 	@Test
@@ -89,11 +91,45 @@ class QdrantVectorStoreBuilderTests {
 	}
 
 	@Test
-	void nullBatchingStrategyShouldThrowException() {
+	void nullCollectionNameShouldThrowException() {
 		assertThatThrownBy(
-				() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).batchingStrategy(null).build())
+				() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).collectionName(null).build())
 			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("BatchingStrategy must not be null");
+			.hasMessage("collectionName must not be empty");
+	}
+
+	@Test
+	void invalidBatchSizeShouldThrowException() {
+		assertThatThrownBy(() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).batchSize(0).build())
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("batchSize must be positive");
+
+		assertThatThrownBy(
+				() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).batchSize(-1).build())
+			.isInstanceOf(IllegalArgumentException.class)
+			.hasMessage("batchSize must be positive");
+	}
+
+	@Test
+	void minimumValidBatchSize() {
+		QdrantVectorStore vectorStore = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel)
+			.batchSize(1)
+			.build();
+
+		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchSize", 1);
+	}
+
+	@Test
+	void builderMethodChaining() {
+		// Verify that all builder methods return the builder instance for method chaining
+		QdrantVectorStore.Builder builder = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel);
+
+		QdrantVectorStore.Builder result = builder.collectionName("test").initializeSchema(true).batchSize(100);
+
+		assertThat(result).isSameAs(builder);
+
+		QdrantVectorStore vectorStore = result.build();
+		assertThat(vectorStore).isNotNull();
 	}
 
 }
