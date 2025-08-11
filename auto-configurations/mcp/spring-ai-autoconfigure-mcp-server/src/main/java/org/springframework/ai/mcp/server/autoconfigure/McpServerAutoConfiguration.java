@@ -26,18 +26,11 @@ import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpAsyncServerExchange;
 import io.modelcontextprotocol.server.McpServer;
 import io.modelcontextprotocol.server.McpServer.AsyncSpecification;
-import io.modelcontextprotocol.server.McpServer.SyncSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncCompletionSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncPromptSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncResourceSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
-import io.modelcontextprotocol.server.McpServerFeatures.SyncCompletionSpecification;
-import io.modelcontextprotocol.server.McpServerFeatures.SyncPromptSpecification;
-import io.modelcontextprotocol.server.McpServerFeatures.SyncResourceSpecification;
-import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
-import io.modelcontextprotocol.server.McpSyncServer;
-import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.server.transport.StdioServerTransportProvider;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.Implementation;
@@ -61,23 +54,20 @@ import org.springframework.util.MimeType;
 
 /**
  * {@link EnableAutoConfiguration Auto-configuration} for the Model Context Protocol (MCP)
- * Server.
+ * Server with pure reactive (async-only) support.
  * <p>
- * This configuration class sets up the core MCP server components with support for both
- * synchronous and asynchronous operation modes. The server type is controlled through the
- * {@code spring.ai.mcp.server.type} property, defaulting to SYNC mode.
+ * This configuration class sets up the core MCP server components with support for
+ * asynchronous operation mode only, following the pure reactive architecture principles.
  * <p>
  * Core features and capabilities include:
  * <ul>
- * <li>Tools: Extensible tool registration system supporting both sync and async
- * execution</li>
+ * <li>Tools: Extensible tool registration system with async execution</li>
  * <li>Resources: Static and dynamic resource management with optional change
  * notifications</li>
  * <li>Prompts: Configurable prompt templates with change notification support</li>
- * <li>Transport: Flexible transport layer with built-in support for:
+ * <li>Transport: Reactive transport layer with built-in support for:
  * <ul>
  * <li>STDIO (default): Standard input/output based communication</li>
- * <li>WebMvc: HTTP-based transport when Spring MVC is available</li>
  * <li>WebFlux: Reactive transport when Spring WebFlux is available</li>
  * </ul>
  * </li>
@@ -85,7 +75,7 @@ import org.springframework.util.MimeType;
  * <p>
  * The configuration is activated when:
  * <ul>
- * <li>The required MCP classes ({@link McpSchema} and {@link McpSyncServer}) are on the
+ * <li>The required MCP classes ({@link McpSchema} and {@link McpAsyncServer}) are on the
  * classpath</li>
  * <li>The {@code spring.ai.mcp.server.enabled} property is true (default)</li>
  * </ul>
@@ -95,21 +85,19 @@ import org.springframework.util.MimeType;
  * <li>Server identification (name, version)</li>
  * <li>Transport selection</li>
  * <li>Change notification settings for tools, resources, and prompts</li>
- * <li>Sync/Async operation mode selection</li>
  * </ul>
  * <p>
- * WebMvc transport support is provided separately by
- * {@link McpWebMvcServerAutoConfiguration}.
+ * Reactive WebFlux transport support is provided separately by
+ * {@link McpWebFluxServerAutoConfiguration}.
  *
  * @author Christian Tzolov
- * @since 1.0.0
+ * @since 1.0.0 (Reactive-only since 2.0.0-reactive-1)
  * @see McpServerProperties
- * @see McpWebMvcServerAutoConfiguration
  * @see McpWebFluxServerAutoConfiguration
  * @see ToolCallback
  */
-@AutoConfiguration(after = { McpWebMvcServerAutoConfiguration.class, McpWebFluxServerAutoConfiguration.class })
-@ConditionalOnClass({ McpSchema.class, McpSyncServer.class })
+@AutoConfiguration(after = { McpWebFluxServerAutoConfiguration.class })
+@ConditionalOnClass({ McpSchema.class, McpAsyncServer.class })
 @EnableConfigurationProperties(McpServerProperties.class)
 @ConditionalOnProperty(prefix = McpServerProperties.CONFIG_PREFIX, name = "enabled", havingValue = "true",
 		matchIfMissing = true)
@@ -130,139 +118,6 @@ public class McpServerAutoConfiguration {
 	}
 
 	@Bean
-	@ConditionalOnProperty(prefix = McpServerProperties.CONFIG_PREFIX, name = "type", havingValue = "SYNC",
-			matchIfMissing = true)
-	public List<McpServerFeatures.SyncToolSpecification> syncTools(ObjectProvider<List<ToolCallback>> toolCalls,
-			List<ToolCallback> toolCallbacksList, McpServerProperties serverProperties) {
-
-		List<ToolCallback> tools = new ArrayList<>(toolCalls.stream().flatMap(List::stream).toList());
-
-		if (!CollectionUtils.isEmpty(toolCallbacksList)) {
-			tools.addAll(toolCallbacksList);
-		}
-
-		return this.toSyncToolSpecifications(tools, serverProperties);
-	}
-
-	private List<McpServerFeatures.SyncToolSpecification> toSyncToolSpecifications(List<ToolCallback> tools,
-			McpServerProperties serverProperties) {
-
-		// De-duplicate tools by their name, keeping the first occurrence of each tool
-		// name
-		return tools.stream() // Key: tool name
-			.collect(Collectors.toMap(tool -> tool.getToolDefinition().name(), tool -> tool, // Value:
-																								// the
-																								// tool
-																								// itself
-					(existing, replacement) -> existing)) // On duplicate key, keep the
-															// existing tool
-			.values()
-			.stream()
-			.map(tool -> {
-				String toolName = tool.getToolDefinition().name();
-				MimeType mimeType = (serverProperties.getToolResponseMimeType().containsKey(toolName))
-						? MimeType.valueOf(serverProperties.getToolResponseMimeType().get(toolName)) : null;
-				return McpToolUtils.toSyncToolSpecification(tool, mimeType);
-			})
-			.toList();
-	}
-
-	@Bean
-	@ConditionalOnProperty(prefix = McpServerProperties.CONFIG_PREFIX, name = "type", havingValue = "SYNC",
-			matchIfMissing = true)
-	public McpSyncServer mcpSyncServer(McpServerTransportProvider transportProvider,
-			McpSchema.ServerCapabilities.Builder capabilitiesBuilder, McpServerProperties serverProperties,
-			ObjectProvider<List<SyncToolSpecification>> tools,
-			ObjectProvider<List<SyncResourceSpecification>> resources,
-			ObjectProvider<List<SyncPromptSpecification>> prompts,
-			ObjectProvider<List<SyncCompletionSpecification>> completions,
-			ObjectProvider<BiConsumer<McpSyncServerExchange, List<McpSchema.Root>>> rootsChangeConsumers,
-			List<ToolCallbackProvider> toolCallbackProvider) {
-
-		McpSchema.Implementation serverInfo = new Implementation(serverProperties.getName(),
-				serverProperties.getVersion());
-
-		// Create the server with both tool and resource capabilities
-		SyncSpecification serverBuilder = McpServer.sync(transportProvider).serverInfo(serverInfo);
-
-		// Tools
-		if (serverProperties.getCapabilities().isTool()) {
-			logger.info("Enable tools capabilities, notification: " + serverProperties.isToolChangeNotification());
-			capabilitiesBuilder.tools(serverProperties.isToolChangeNotification());
-
-			List<SyncToolSpecification> toolSpecifications = new ArrayList<>(
-					tools.stream().flatMap(List::stream).toList());
-
-			List<ToolCallback> providerToolCallbacks = toolCallbackProvider.stream()
-				.map(pr -> List.of(pr.getToolCallbacks()))
-				.flatMap(List::stream)
-				.filter(fc -> fc instanceof ToolCallback)
-				.map(fc -> (ToolCallback) fc)
-				.toList();
-
-			toolSpecifications.addAll(this.toSyncToolSpecifications(providerToolCallbacks, serverProperties));
-
-			if (!CollectionUtils.isEmpty(toolSpecifications)) {
-				serverBuilder.tools(toolSpecifications);
-				logger.info("Registered tools: " + toolSpecifications.size());
-			}
-		}
-
-		// Resources
-		if (serverProperties.getCapabilities().isResource()) {
-			logger.info(
-					"Enable resources capabilities, notification: " + serverProperties.isResourceChangeNotification());
-			capabilitiesBuilder.resources(false, serverProperties.isResourceChangeNotification());
-
-			List<SyncResourceSpecification> resourceSpecifications = resources.stream().flatMap(List::stream).toList();
-			if (!CollectionUtils.isEmpty(resourceSpecifications)) {
-				serverBuilder.resources(resourceSpecifications);
-				logger.info("Registered resources: " + resourceSpecifications.size());
-			}
-		}
-
-		// Prompts
-		if (serverProperties.getCapabilities().isPrompt()) {
-			logger.info("Enable prompts capabilities, notification: " + serverProperties.isPromptChangeNotification());
-			capabilitiesBuilder.prompts(serverProperties.isPromptChangeNotification());
-
-			List<SyncPromptSpecification> promptSpecifications = prompts.stream().flatMap(List::stream).toList();
-			if (!CollectionUtils.isEmpty(promptSpecifications)) {
-				serverBuilder.prompts(promptSpecifications);
-				logger.info("Registered prompts: " + promptSpecifications.size());
-			}
-		}
-
-		// Completions
-		if (serverProperties.getCapabilities().isCompletion()) {
-			logger.info("Enable completions capabilities");
-			capabilitiesBuilder.completions();
-
-			List<SyncCompletionSpecification> completionSpecifications = completions.stream()
-				.flatMap(List::stream)
-				.toList();
-			if (!CollectionUtils.isEmpty(completionSpecifications)) {
-				serverBuilder.completions(completionSpecifications);
-				logger.info("Registered completions: " + completionSpecifications.size());
-			}
-		}
-
-		rootsChangeConsumers.ifAvailable(consumer -> {
-			serverBuilder.rootsChangeHandler((exchange, roots) -> consumer.accept(exchange, roots));
-			logger.info("Registered roots change consumer");
-		});
-
-		serverBuilder.capabilities(capabilitiesBuilder.build());
-
-		serverBuilder.instructions(serverProperties.getInstructions());
-
-		serverBuilder.requestTimeout(serverProperties.getRequestTimeout());
-
-		return serverBuilder.build();
-	}
-
-	@Bean
-	@ConditionalOnProperty(prefix = McpServerProperties.CONFIG_PREFIX, name = "type", havingValue = "ASYNC")
 	public List<McpServerFeatures.AsyncToolSpecification> asyncTools(ObjectProvider<List<ToolCallback>> toolCalls,
 			List<ToolCallback> toolCallbackList, McpServerProperties serverProperties) {
 
@@ -297,7 +152,6 @@ public class McpServerAutoConfiguration {
 	}
 
 	@Bean
-	@ConditionalOnProperty(prefix = McpServerProperties.CONFIG_PREFIX, name = "type", havingValue = "ASYNC")
 	public McpAsyncServer mcpAsyncServer(McpServerTransportProvider transportProvider,
 			McpSchema.ServerCapabilities.Builder capabilitiesBuilder, McpServerProperties serverProperties,
 			ObjectProvider<List<AsyncToolSpecification>> tools,

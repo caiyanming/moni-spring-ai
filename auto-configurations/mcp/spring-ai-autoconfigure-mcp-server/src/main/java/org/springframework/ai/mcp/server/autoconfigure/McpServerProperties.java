@@ -26,7 +26,8 @@ import org.springframework.util.Assert;
 /**
  * Configuration properties for the Model Context Protocol (MCP) server.
  * <p>
- * These properties control the behavior and configuration of the MCP server, including:
+ * These properties control the behavior and configuration of the MCP server with pure
+ * reactive (async-only) support, including:
  * <ul>
  * <li>Server identification (name and version)</li>
  * <li>Change notification settings for tools, resources, and prompts</li>
@@ -122,17 +123,6 @@ public class McpServerProperties {
 	 */
 	private String sseMessageEndpoint = "/mcp/message";
 
-	/**
-	 * The type of server to use for MCP server communication.
-	 * <p>
-	 * Supported types are:
-	 * <ul>
-	 * <li>SYNC - Standard synchronous server (default)</li>
-	 * <li>ASYNC - Asynchronous server</li>
-	 * </ul>
-	 */
-	private ServerType type = ServerType.SYNC;
-
 	private Capabilities capabilities = new Capabilities();
 
 	/**
@@ -153,23 +143,6 @@ public class McpServerProperties {
 
 	public Capabilities getCapabilities() {
 		return this.capabilities;
-	}
-
-	/**
-	 * Server types supported by the MCP server.
-	 */
-	public enum ServerType {
-
-		/**
-		 * Synchronous (McpSyncServer) server
-		 */
-		SYNC,
-
-		/**
-		 * Asynchronous (McpAsyncServer) server
-		 */
-		ASYNC
-
 	}
 
 	/**
@@ -268,15 +241,6 @@ public class McpServerProperties {
 	public void setSseMessageEndpoint(String sseMessageEndpoint) {
 		Assert.hasText(sseMessageEndpoint, "SSE message endpoint must not be empty");
 		this.sseMessageEndpoint = sseMessageEndpoint;
-	}
-
-	public ServerType getType() {
-		return this.type;
-	}
-
-	public void setType(ServerType serverType) {
-		Assert.notNull(serverType, "Server type must not be null");
-		this.type = serverType;
 	}
 
 	public Map<String, String> getToolResponseMimeType() {

@@ -19,10 +19,8 @@ package org.springframework.ai.mcp.client.autoconfigure;
 import java.util.List;
 
 import io.modelcontextprotocol.client.McpAsyncClient;
-import io.modelcontextprotocol.client.McpSyncClient;
 
 import org.springframework.ai.mcp.AsyncMcpToolCallbackProvider;
-import org.springframework.ai.mcp.SyncMcpToolCallbackProvider;
 import org.springframework.ai.mcp.client.autoconfigure.properties.McpClientCommonProperties;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -40,25 +38,19 @@ import org.springframework.context.annotation.Conditional;
 public class McpToolCallbackAutoConfiguration {
 
 	/**
-	 * Creates tool callbacks for all configured MCP clients.
+	 * Creates async tool callbacks for all configured MCP clients.
 	 *
 	 * <p>
 	 * These callbacks enable integration with Spring AI's tool execution framework,
-	 * allowing MCP tools to be used as part of AI interactions.
-	 * @param syncMcpClients provider of MCP sync clients
-	 * @return list of tool callbacks for MCP integration
+	 * allowing MCP tools to be used as part of AI interactions in a reactive manner.
+	 * @param mcpClientsProvider provider of MCP async clients
+	 * @return async tool callback provider for MCP integration
 	 */
-	@Bean
-	@ConditionalOnProperty(prefix = McpClientCommonProperties.CONFIG_PREFIX, name = "type", havingValue = "SYNC",
-			matchIfMissing = true)
-	public SyncMcpToolCallbackProvider mcpToolCallbacks(ObjectProvider<List<McpSyncClient>> syncMcpClients) {
-		List<McpSyncClient> mcpClients = syncMcpClients.stream().flatMap(List::stream).toList();
-		return new SyncMcpToolCallbackProvider(mcpClients);
-	}
 
 	@Bean
-	@ConditionalOnProperty(prefix = McpClientCommonProperties.CONFIG_PREFIX, name = "type", havingValue = "ASYNC")
-	public AsyncMcpToolCallbackProvider mcpAsyncToolCallbacks(ObjectProvider<List<McpAsyncClient>> mcpClientsProvider) {
+	@ConditionalOnProperty(prefix = McpClientCommonProperties.CONFIG_PREFIX, name = "enabled", havingValue = "true",
+			matchIfMissing = true)
+	public AsyncMcpToolCallbackProvider mcpToolCallbacks(ObjectProvider<List<McpAsyncClient>> mcpClientsProvider) {
 		List<McpAsyncClient> mcpClients = mcpClientsProvider.stream().flatMap(List::stream).toList();
 		return new AsyncMcpToolCallbackProvider(mcpClients);
 	}

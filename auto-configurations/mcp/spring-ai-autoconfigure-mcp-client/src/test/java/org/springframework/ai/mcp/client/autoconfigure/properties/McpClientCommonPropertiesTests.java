@@ -45,7 +45,7 @@ class McpClientCommonPropertiesTests {
 			assertThat(properties.getVersion()).isEqualTo("1.0.0");
 			assertThat(properties.isInitialized()).isTrue();
 			assertThat(properties.getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
-			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.SYNC);
+			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.ASYNC);
 			assertThat(properties.isRootChangeNotification()).isTrue();
 		});
 	}
@@ -199,7 +199,7 @@ class McpClientCommonPropertiesTests {
 			assertThat(properties.getVersion()).isEqualTo("1.0.0");
 			assertThat(properties.isInitialized()).isTrue();
 			assertThat(properties.getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
-			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.SYNC);
+			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.ASYNC);
 			assertThat(properties.isRootChangeNotification()).isTrue();
 		});
 	}
@@ -214,7 +214,7 @@ class McpClientCommonPropertiesTests {
 			assertThat(properties.getName()).isEqualTo("spring-ai-mcp-client");
 			assertThat(properties.getVersion()).isEqualTo("1.0.0");
 			assertThat(properties.getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
-			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.SYNC);
+			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.ASYNC);
 			assertThat(properties.isRootChangeNotification()).isTrue();
 		});
 	}
@@ -230,7 +230,7 @@ class McpClientCommonPropertiesTests {
 			assertThat(properties.getVersion()).isEqualTo("1.0.0");
 			assertThat(properties.isInitialized()).isTrue();
 			assertThat(properties.getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
-			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.SYNC);
+			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.ASYNC);
 		});
 	}
 
@@ -244,7 +244,7 @@ class McpClientCommonPropertiesTests {
 			assertThat(properties.getName()).isEqualTo("spring-ai-mcp-client");
 			assertThat(properties.getVersion()).isEqualTo("1.0.0");
 			assertThat(properties.isInitialized()).isTrue();
-			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.SYNC);
+			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.ASYNC);
 			assertThat(properties.isRootChangeNotification()).isTrue();
 		});
 	}
@@ -276,7 +276,7 @@ class McpClientCommonPropertiesTests {
 				assertThat(properties.isEnabled()).isTrue();
 				assertThat(properties.isInitialized()).isTrue();
 				assertThat(properties.getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
-				assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.SYNC);
+				assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.ASYNC);
 				assertThat(properties.isRootChangeNotification()).isTrue();
 			});
 	}

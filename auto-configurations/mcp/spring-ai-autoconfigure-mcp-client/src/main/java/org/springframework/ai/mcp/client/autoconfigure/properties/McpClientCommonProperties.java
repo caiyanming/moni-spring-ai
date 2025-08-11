@@ -71,24 +71,34 @@ public class McpClientCommonProperties {
 	 * <p>
 	 * Supported types are:
 	 * <ul>
-	 * <li>SYNC - Standard synchronous client (default)</li>
-	 * <li>ASYNC - Asynchronous client</li>
+	 * <li>ASYNC - Pure reactive asynchronous client (default and recommended)</li>
+	 * <li>SYNC - Legacy synchronous client (deprecated, not supported in pure reactive
+	 * mode)</li>
 	 * </ul>
 	 */
-	private ClientType type = ClientType.SYNC;
+	private ClientType type = ClientType.ASYNC;
 
 	/**
 	 * Client types supported by the MCP client.
+	 * <p>
+	 * Note: Only ASYNC is supported in pure reactive mode.
 	 */
 	public enum ClientType {
 
 		/**
-		 * Synchronous (McpSyncClient) client
+		 * Synchronous (McpSyncClient) client - DEPRECATED
+		 * <p>
+		 * This client type is deprecated and not supported in pure reactive
+		 * configurations. Use ASYNC for better performance and non-blocking operations.
 		 */
+		@Deprecated(since = "2.0.0-reactive-1", forRemoval = true)
 		SYNC,
 
 		/**
-		 * Asynchronous (McpAsyncClient) client
+		 * Pure reactive asynchronous (McpAsyncClient) client - RECOMMENDED
+		 * <p>
+		 * This is the preferred client type that provides non-blocking, reactive
+		 * operations and integrates seamlessly with Spring WebFlux applications.
 		 */
 		ASYNC
 

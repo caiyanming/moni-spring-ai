@@ -210,7 +210,6 @@
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-mcp-server</module>
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-mcp-client-webflux</module>
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-mcp-server-webflux</module>
-		<module>spring-ai-spring-boot-starters/spring-ai-starter-mcp-server-webmvc</module>
 
 		<module>spring-ai-integration-tests</module>
 

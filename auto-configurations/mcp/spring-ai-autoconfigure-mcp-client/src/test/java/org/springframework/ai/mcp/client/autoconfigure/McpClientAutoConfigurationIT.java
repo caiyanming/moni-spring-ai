@@ -22,7 +22,6 @@ import java.util.function.Function;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import io.modelcontextprotocol.client.McpAsyncClient;
-import io.modelcontextprotocol.client.McpSyncClient;
 import io.modelcontextprotocol.spec.McpClientTransport;
 import io.modelcontextprotocol.spec.McpSchema;
 import org.junit.jupiter.api.Disabled;
@@ -30,9 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import reactor.core.publisher.Mono;
 
-import org.springframework.ai.mcp.client.autoconfigure.configurer.McpSyncClientConfigurer;
+import org.springframework.ai.mcp.client.autoconfigure.configurer.McpAsyncClientConfigurer;
 import org.springframework.ai.mcp.client.autoconfigure.properties.McpClientCommonProperties;
-import org.springframework.ai.mcp.customizer.McpSyncClientCustomizer;
+import org.springframework.ai.mcp.customizer.McpAsyncClientCustomizer;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
@@ -50,14 +49,14 @@ public class McpClientAutoConfigurationIT {
 	@Test
 	void defaultConfiguration() {
 		this.contextRunner.withUserConfiguration(TestTransportConfiguration.class).run(context -> {
-			List<McpSyncClient> clients = context.getBean("mcpSyncClients", List.class);
+			List<McpAsyncClient> clients = context.getBean("mcpAsyncClients", List.class);
 			assertThat(clients).hasSize(1);
 
 			McpClientCommonProperties properties = context.getBean(McpClientCommonProperties.class);
-			assertThat(properties.getName()).isEqualTo("mcp-client");
+			assertThat(properties.getName()).isEqualTo("spring-ai-mcp-client");
 			assertThat(properties.getVersion()).isEqualTo("1.0.0");
-			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.SYNC);
-			assertThat(properties.getRequestTimeout()).isEqualTo(Duration.ofSeconds(30));
+			assertThat(properties.getType()).isEqualTo(McpClientCommonProperties.ClientType.ASYNC);
+			assertThat(properties.getRequestTimeout()).isEqualTo(Duration.ofSeconds(20));
 			assertThat(properties.isInitialized()).isTrue();
 		});
 	}
@@ -85,7 +84,6 @@ public class McpClientAutoConfigurationIT {
 	@Test
 	void disabledConfiguration() {
 		this.contextRunner.withPropertyValues("spring.ai.mcp.client.enabled=false").run(context -> {
-			assertThat(context).doesNotHaveBean(McpSyncClient.class);
 			assertThat(context).doesNotHaveBean(McpAsyncClient.class);
 			assertThat(context).doesNotHaveBean(ToolCallback.class);
 		});
@@ -104,8 +102,8 @@ public class McpClientAutoConfigurationIT {
 	void clientCustomization() {
 		this.contextRunner.withUserConfiguration(TestTransportConfiguration.class, CustomizerConfiguration.class)
 			.run(context -> {
-				assertThat(context).hasSingleBean(McpSyncClientConfigurer.class);
-				List<McpSyncClient> clients = context.getBean("mcpSyncClients", List.class);
+				assertThat(context).hasSingleBean(McpAsyncClientConfigurer.class);
+				List<McpAsyncClient> clients = context.getBean("mcpAsyncClients", List.class);
 				assertThat(clients).hasSize(1);
 			});
 	}
@@ -123,7 +121,18 @@ public class McpClientAutoConfigurationIT {
 	void closeableWrappersCreation() {
 		this.contextRunner.withUserConfiguration(TestTransportConfiguration.class)
 			.run(context -> assertThat(context)
-				.hasSingleBean(McpClientAutoConfiguration.CloseableMcpSyncClients.class));
+				.hasSingleBean(McpClientAutoConfiguration.CloseableMcpAsyncClients.class));
+	}
+
+	@Test
+	void syncClientTypeRejected() {
+		this.contextRunner.withPropertyValues("spring.ai.mcp.client.type=SYNC")
+			.withUserConfiguration(TestTransportConfiguration.class)
+			.run(context -> {
+				assertThat(context).hasFailed();
+				assertThat(context.getStartupFailure()).hasMessageContaining(
+						"Synchronous MCP client mode is not supported in pure reactive configuration");
+			});
 	}
 
 	@Configuration
@@ -150,7 +159,7 @@ public class McpClientAutoConfigurationIT {
 	static class CustomizerConfiguration {
 
 		@Bean
-		McpSyncClientCustomizer testCustomizer() {
+		McpAsyncClientCustomizer testCustomizer() {
 			return (name, spec) -> {
 				/* no-op */ };
 		}
