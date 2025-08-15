@@ -19,6 +19,8 @@ package org.springframework.ai.rag.retrieval.search;
 import java.util.List;
 import java.util.function.Supplier;
 
+import reactor.core.publisher.Flux;
+
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
 import org.springframework.ai.vectorstore.SearchRequest;
@@ -42,7 +44,7 @@ import org.springframework.util.StringUtils;
  *     .topK(5)
  *     .filterExpression(filterExpression)
  *     .build();
- * List<Document> documents = retriever.retrieve(new Query("example query"));
+ * Flux<Document> documents = retriever.retrieve(new Query("example query"));
  * }</pre>
  *
  * <p>
@@ -82,7 +84,7 @@ public final class VectorStoreDocumentRetriever implements DocumentRetriever {
 	}
 
 	@Override
-	public List<Document> retrieve(Query query) {
+	public Flux<Document> retrieve(Query query) {
 		Assert.notNull(query, "query cannot be null");
 		var requestFilterExpression = computeRequestFilterExpression(query);
 		var searchRequest = SearchRequest.builder()
@@ -91,9 +93,7 @@ public final class VectorStoreDocumentRetriever implements DocumentRetriever {
 			.similarityThreshold(this.similarityThreshold)
 			.topK(this.topK)
 			.build();
-		// Note: This is a temporary workaround using .block() until RAG interface becomes
-		// reactive
-		return this.vectorStore.similaritySearch(searchRequest).collectList().block();
+		return this.vectorStore.similaritySearch(searchRequest);
 	}
 
 	/**

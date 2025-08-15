@@ -19,6 +19,9 @@ package org.springframework.ai.rag.retrieval.search;
 import java.util.List;
 import java.util.function.Function;
 
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.document.Document;
 import org.springframework.ai.rag.Query;
 
@@ -30,17 +33,17 @@ import org.springframework.ai.rag.Query;
  * @author Thomas Vitale
  * @since 1.0.0
  */
-public interface DocumentRetriever extends Function<Query, List<Document>> {
+public interface DocumentRetriever extends Function<Query, Flux<Document>> {
 
 	/**
 	 * Retrieves relevant documents from an underlying data source based on the given
 	 * query.
 	 * @param query The query to use for retrieving documents
-	 * @return The list of relevant documents
+	 * @return A Flux of relevant documents
 	 */
-	List<Document> retrieve(Query query);
+	Flux<Document> retrieve(Query query);
 
-	default List<Document> apply(Query query) {
+	default Flux<Document> apply(Query query) {
 		return retrieve(query);
 	}
 

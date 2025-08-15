@@ -20,7 +20,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import reactor.core.publisher.Flux;
@@ -130,7 +129,9 @@ public final class RetrievalAugmentationAdvisor implements BaseAdvisor {
 			return expandedQueriesMono.flatMap(expandedQueries -> {
 				// 3. Get similar documents for each query.
 				List<Mono<Map.Entry<Query, List<Document>>>> documentMonos = expandedQueries.stream()
-					.map(query -> Mono.fromSupplier(() -> getDocumentsForQuery(query))
+					.map(query -> this.documentRetriever.retrieve(query)
+						.collectList()
+						.map(docs -> Map.entry(query, docs))
 						.subscribeOn(Schedulers.fromExecutor(this.taskExecutor)))
 					.toList();
 
@@ -160,15 +161,6 @@ public final class RetrievalAugmentationAdvisor implements BaseAdvisor {
 				});
 			});
 		});
-	}
-
-	/**
-	 * Processes a single query by routing it to document retrievers and collecting
-	 * documents.
-	 */
-	private Map.Entry<Query, List<Document>> getDocumentsForQuery(Query query) {
-		List<Document> documents = this.documentRetriever.retrieve(query);
-		return Map.entry(query, documents);
 	}
 
 	@Override
