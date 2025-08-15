@@ -18,6 +18,8 @@ package org.springframework.ai.rag.preretrieval.query.transformation;
 
 import java.util.function.Function;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.rag.Query;
 
 /**
@@ -28,16 +30,16 @@ import org.springframework.ai.rag.Query;
  * @author Thomas Vitale
  * @since 1.0.0
  */
-public interface QueryTransformer extends Function<Query, Query> {
+public interface QueryTransformer extends Function<Query, Mono<Query>> {
 
 	/**
 	 * Transforms the given query according to the implemented strategy.
 	 * @param query The original query to transform
-	 * @return The transformed query
+	 * @return A Mono containing the transformed query
 	 */
-	Query transform(Query query);
+	Mono<Query> transform(Query query);
 
-	default Query apply(Query query) {
+	default Mono<Query> apply(Query query) {
 		return transform(query);
 	}
 

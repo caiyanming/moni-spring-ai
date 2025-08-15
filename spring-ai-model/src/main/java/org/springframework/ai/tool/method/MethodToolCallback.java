@@ -19,6 +19,7 @@ package org.springframework.ai.tool.method;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.Map;
 import java.util.stream.Stream;
@@ -26,6 +27,7 @@ import java.util.stream.Stream;
 import com.fasterxml.jackson.core.type.TypeReference;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.model.ToolContext;
@@ -97,24 +99,48 @@ public final class MethodToolCallback implements ToolCallback {
 
 	@Override
 	public Mono<String> call(String toolInput, @Nullable ToolContext toolContext) {
+		Assert.hasText(toolInput, "toolInput cannot be null or empty");
+
+		logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
+
+		// Prepare method invocation
 		return Mono.fromCallable(() -> {
-			Assert.hasText(toolInput, "toolInput cannot be null or empty");
-
-			logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
-
 			validateToolContextSupport(toolContext);
-
 			Map<String, Object> toolArguments = extractToolArguments(toolInput);
-
-			Object[] methodArguments = buildMethodArguments(toolArguments, toolContext);
-
+			return buildMethodArguments(toolArguments, toolContext);
+		}).flatMap(methodArguments -> {
+			// Call the method and handle reactive return types
 			Object result = callMethod(methodArguments);
 
-			logger.debug("Successful execution of tool: {}", this.toolDefinition.name());
-
-			Type returnType = this.toolMethod.getGenericReturnType();
-
-			return this.toolCallResultConverter.convert(result, returnType);
+			// Check if the result is a reactive type
+			if (result instanceof Mono<?> monoResult) {
+				// Handle Mono<String> return type
+				return monoResult.map(value -> {
+					logger.debug("Successful execution of reactive tool: {}", this.toolDefinition.name());
+					// Assume Tool methods return Mono<String> directly
+					return value instanceof String ? (String) value : value.toString();
+				});
+			}
+			else if (result instanceof Flux<?> fluxResult) {
+				// Handle Flux<String> return type - collect to single string
+				return fluxResult.collectList().map(list -> {
+					logger.debug("Successful execution of reactive tool: {}", this.toolDefinition.name());
+					// Assume Tool methods return Flux<String> directly
+					return String.join("\n", list.stream().map(Object::toString).toList());
+				});
+			}
+			else {
+				// Handle non-reactive return type
+				logger.debug("Successful execution of tool: {}", this.toolDefinition.name());
+				Type returnType = this.toolMethod.getGenericReturnType();
+				String converted = this.toolCallResultConverter.convert(result, returnType);
+				return Mono.just(converted);
+			}
+		}).onErrorMap(ex -> {
+			if (ex instanceof ToolExecutionException) {
+				return ex;
+			}
+			return new ToolExecutionException(this.toolDefinition, ex);
 		});
 	}
 

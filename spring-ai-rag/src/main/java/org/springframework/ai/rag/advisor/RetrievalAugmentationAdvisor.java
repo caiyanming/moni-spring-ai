@@ -23,8 +23,10 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -106,53 +108,57 @@ public final class RetrievalAugmentationAdvisor implements BaseAdvisor {
 
 	@Override
 	public Mono<ChatClientRequest> before(ChatClientRequest chatClientRequest, @Nullable AdvisorChain advisorChain) {
-		return Mono.fromCallable(() -> {
-			Map<String, Object> context = new HashMap<>(chatClientRequest.context());
+		Map<String, Object> context = new HashMap<>(chatClientRequest.context());
 
-			// 0. Create a query from the user text, parameters, and conversation history.
-			Query originalQuery = Query.builder()
-				.text(chatClientRequest.prompt().getUserMessage().getText())
-				.history(chatClientRequest.prompt().getInstructions())
-				.context(context)
-				.build();
+		// 0. Create a query from the user text, parameters, and conversation history.
+		Query originalQuery = Query.builder()
+			.text(chatClientRequest.prompt().getUserMessage().getText())
+			.history(chatClientRequest.prompt().getInstructions())
+			.context(context)
+			.build();
 
-			// 1. Transform original user query based on a chain of query transformers.
-			Query transformedQuery = originalQuery;
-			for (var queryTransformer : this.queryTransformers) {
-				transformedQuery = queryTransformer.apply(transformedQuery);
-			}
+		// 1. Transform original user query based on a chain of query transformers.
+		Mono<Query> transformedQueryMono = Flux.fromIterable(this.queryTransformers)
+			.reduce(Mono.just(originalQuery), (queryMono, transformer) -> queryMono.flatMap(transformer::apply))
+			.flatMap(mono -> mono);
 
+		return transformedQueryMono.flatMap(transformedQuery -> {
 			// 2. Expand query into one or multiple queries.
-			List<Query> expandedQueries = this.queryExpander != null ? this.queryExpander.expand(transformedQuery)
-					: List.of(transformedQuery);
+			Mono<List<Query>> expandedQueriesMono = this.queryExpander != null
+					? this.queryExpander.expand(transformedQuery) : Mono.just(List.of(transformedQuery));
 
-			// 3. Get similar documents for each query.
-			Map<Query, List<List<Document>>> documentsForQuery = expandedQueries.stream()
-				.map(query -> CompletableFuture.supplyAsync(() -> getDocumentsForQuery(query), this.taskExecutor))
-				.toList()
-				.stream()
-				.map(CompletableFuture::join)
-				.collect(Collectors.toMap(Map.Entry::getKey, entry -> List.of(entry.getValue())));
+			return expandedQueriesMono.flatMap(expandedQueries -> {
+				// 3. Get similar documents for each query.
+				List<Mono<Map.Entry<Query, List<Document>>>> documentMonos = expandedQueries.stream()
+					.map(query -> Mono.fromSupplier(() -> getDocumentsForQuery(query))
+						.subscribeOn(Schedulers.fromExecutor(this.taskExecutor)))
+					.toList();
 
-			// 4. Combine documents retrieved based on multiple queries and from multiple
-			// data
-			// sources.
-			List<Document> documents = this.documentJoiner.join(documentsForQuery);
+				return Flux.merge(documentMonos).collectList().map(entries -> {
+					Map<Query, List<List<Document>>> documentsForQuery = entries.stream()
+						.collect(Collectors.toMap(Map.Entry::getKey, entry -> List.of(entry.getValue())));
 
-			// 5. Post-process the documents.
-			for (var documentPostProcessor : this.documentPostProcessors) {
-				documents = documentPostProcessor.process(originalQuery, documents);
-			}
-			context.put(DOCUMENT_CONTEXT, documents);
+					// 4. Combine documents retrieved based on multiple queries and from
+					// multiple
+					// data sources.
+					List<Document> documents = this.documentJoiner.join(documentsForQuery);
 
-			// 5. Augment user query with the document contextual data.
-			Query augmentedQuery = this.queryAugmenter.augment(originalQuery, documents);
+					// 5. Post-process the documents.
+					for (var documentPostProcessor : this.documentPostProcessors) {
+						documents = documentPostProcessor.process(originalQuery, documents);
+					}
+					context.put(DOCUMENT_CONTEXT, documents);
 
-			// 6. Update ChatClientRequest with augmented prompt.
-			return chatClientRequest.mutate()
-				.prompt(chatClientRequest.prompt().augmentUserMessage(augmentedQuery.text()))
-				.context(context)
-				.build();
+					// 5. Augment user query with the document contextual data.
+					Query augmentedQuery = this.queryAugmenter.augment(originalQuery, documents);
+
+					// 6. Update ChatClientRequest with augmented prompt.
+					return chatClientRequest.mutate()
+						.prompt(chatClientRequest.prompt().augmentUserMessage(augmentedQuery.text()))
+						.context(context)
+						.build();
+				});
+			});
 		});
 	}
 

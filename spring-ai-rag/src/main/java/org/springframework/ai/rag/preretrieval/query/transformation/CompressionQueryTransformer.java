@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.Message;
@@ -74,24 +75,24 @@ public class CompressionQueryTransformer implements QueryTransformer {
 	}
 
 	@Override
-	public Query transform(Query query) {
+	public Mono<Query> transform(Query query) {
 		Assert.notNull(query, "query cannot be null");
 
 		logger.debug("Compressing conversation history and follow-up query into a standalone query");
 
-		var compressedQueryText = this.chatClient.prompt()
+		return this.chatClient.prompt()
 			.user(user -> user.text(this.promptTemplate.getTemplate())
 				.param("history", formatConversationHistory(query.history()))
 				.param("query", query.text()))
 			.call()
-			.content();
-
-		if (!StringUtils.hasText(compressedQueryText)) {
-			logger.warn("Query compression result is null/empty. Returning the input query unchanged.");
-			return query;
-		}
-
-		return query.mutate().text(compressedQueryText).build();
+			.content()
+			.map(compressedQueryText -> {
+				if (!StringUtils.hasText(compressedQueryText)) {
+					logger.warn("Query compression result is null/empty. Returning the input query unchanged.");
+					return query;
+				}
+				return query.mutate().text(compressedQueryText).build();
+			});
 	}
 
 	private String formatConversationHistory(List<Message> history) {

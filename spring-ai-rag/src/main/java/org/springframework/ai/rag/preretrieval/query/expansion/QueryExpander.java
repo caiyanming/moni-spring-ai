@@ -19,6 +19,8 @@ package org.springframework.ai.rag.preretrieval.query.expansion;
 import java.util.List;
 import java.util.function.Function;
 
+import reactor.core.publisher.Mono;
+
 import org.springframework.ai.rag.Query;
 
 /**
@@ -29,16 +31,16 @@ import org.springframework.ai.rag.Query;
  * @author Thomas Vitale
  * @since 1.0.0
  */
-public interface QueryExpander extends Function<Query, List<Query>> {
+public interface QueryExpander extends Function<Query, Mono<List<Query>>> {
 
 	/**
 	 * Expands the given query into a list of queries.
 	 * @param query The original query to be expanded
-	 * @return A list of expanded queries
+	 * @return A Mono containing a list of expanded queries
 	 */
-	List<Query> expand(Query query);
+	Mono<List<Query>> expand(Query query);
 
-	default List<Query> apply(Query query) {
+	default Mono<List<Query>> apply(Query query) {
 		return expand(query);
 	}
 

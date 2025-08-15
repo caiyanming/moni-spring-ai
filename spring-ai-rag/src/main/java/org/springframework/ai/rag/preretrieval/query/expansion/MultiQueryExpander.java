@@ -22,6 +22,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.PromptTemplate;
@@ -94,43 +95,44 @@ public final class MultiQueryExpander implements QueryExpander {
 	}
 
 	@Override
-	public List<Query> expand(Query query) {
+	public Mono<List<Query>> expand(Query query) {
 		Assert.notNull(query, "query cannot be null");
 
 		logger.debug("Generating {} query variants", this.numberOfQueries);
 
-		var response = this.chatClient.prompt()
+		return this.chatClient.prompt()
 			.user(user -> user.text(this.promptTemplate.getTemplate())
 				.param("number", this.numberOfQueries)
 				.param("query", query.text()))
 			.call()
-			.content();
+			.content()
+			.map(response -> {
+				if (response == null) {
+					logger.warn("Query expansion result is null. Returning the input query unchanged.");
+					return List.of(query);
+				}
 
-		if (response == null) {
-			logger.warn("Query expansion result is null. Returning the input query unchanged.");
-			return List.of(query);
-		}
+				var queryVariants = Arrays.asList(response.split("\n"));
 
-		var queryVariants = Arrays.asList(response.split("\n"));
+				if (CollectionUtils.isEmpty(queryVariants) || this.numberOfQueries != queryVariants.size()) {
+					logger.warn(
+							"Query expansion result does not contain the requested {} variants. Returning the input query unchanged.",
+							this.numberOfQueries);
+					return List.of(query);
+				}
 
-		if (CollectionUtils.isEmpty(queryVariants) || this.numberOfQueries != queryVariants.size()) {
-			logger.warn(
-					"Query expansion result does not contain the requested {} variants. Returning the input query unchanged.",
-					this.numberOfQueries);
-			return List.of(query);
-		}
+				var queries = queryVariants.stream()
+					.filter(StringUtils::hasText)
+					.map(queryText -> query.mutate().text(queryText).build())
+					.collect(Collectors.toList());
 
-		var queries = queryVariants.stream()
-			.filter(StringUtils::hasText)
-			.map(queryText -> query.mutate().text(queryText).build())
-			.collect(Collectors.toList());
+				if (this.includeOriginal) {
+					logger.debug("Including the original query in the result");
+					queries.add(0, query);
+				}
 
-		if (this.includeOriginal) {
-			logger.debug("Including the original query in the result");
-			queries.add(0, query);
-		}
-
-		return queries;
+				return queries;
+			});
 	}
 
 	public static Builder builder() {

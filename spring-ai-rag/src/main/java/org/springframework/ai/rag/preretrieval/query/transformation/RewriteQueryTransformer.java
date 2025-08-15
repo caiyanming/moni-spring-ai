@@ -18,6 +18,7 @@ package org.springframework.ai.rag.preretrieval.query.transformation;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.PromptTemplate;
@@ -72,24 +73,24 @@ public class RewriteQueryTransformer implements QueryTransformer {
 	}
 
 	@Override
-	public Query transform(Query query) {
+	public Mono<Query> transform(Query query) {
 		Assert.notNull(query, "query cannot be null");
 
 		logger.debug("Rewriting query to optimize for querying a {}.", this.targetSearchSystem);
 
-		var rewrittenQueryText = this.chatClient.prompt()
+		return this.chatClient.prompt()
 			.user(user -> user.text(this.promptTemplate.getTemplate())
 				.param("target", this.targetSearchSystem)
 				.param("query", query.text()))
 			.call()
-			.content();
-
-		if (!StringUtils.hasText(rewrittenQueryText)) {
-			logger.warn("Query rewrite result is null/empty. Returning the input query unchanged.");
-			return query;
-		}
-
-		return query.mutate().text(rewrittenQueryText).build();
+			.content()
+			.map(rewrittenQueryText -> {
+				if (!StringUtils.hasText(rewrittenQueryText)) {
+					logger.warn("Query rewrite result is null/empty. Returning the input query unchanged.");
+					return query;
+				}
+				return query.mutate().text(rewrittenQueryText).build();
+			});
 	}
 
 	public static Builder builder() {
