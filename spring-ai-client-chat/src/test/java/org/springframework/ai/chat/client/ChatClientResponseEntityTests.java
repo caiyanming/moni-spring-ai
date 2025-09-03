@@ -70,7 +70,8 @@ public class ChatClientResponseEntityTests {
 			.prompt()
 			.user("Tell me about John")
 			.call()
-			.responseEntity(MyBean.class);
+			.responseEntity(MyBean.class)
+			.block();
 
 		assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
 		assertThat(responseEntity.getResponse().getMetadata().get("key1").toString()).isEqualTo("value1");
@@ -101,7 +102,8 @@ public class ChatClientResponseEntityTests {
 			.call()
 			.responseEntity(new ParameterizedTypeReference<>() {
 
-			});
+			})
+			.block();
 
 		assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
 		assertThat(responseEntity.getEntity().get(0)).isEqualTo(new MyBean("Max", 10));
@@ -126,7 +128,8 @@ public class ChatClientResponseEntityTests {
 			.prompt()
 			.user("Tell me about Max")
 			.call()
-			.responseEntity(new MapOutputConverter());
+			.responseEntity(new MapOutputConverter())
+			.block();
 
 		assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
 		assertThat(responseEntity.getEntity().get("name")).isEqualTo("Max");

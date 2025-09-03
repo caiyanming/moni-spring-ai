@@ -86,7 +86,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).defaultSystem("Default system text").build();
 
-		var content = chatClient.prompt("What's Spring AI?").call().content();
+		var content = chatClient.prompt("What's Spring AI?").call().content().block();
 
 		assertThat(content).isEqualTo("response");
 
@@ -103,7 +103,11 @@ public class ChatClientTest {
 		assertThat(systemMessage.getMessageType()).isEqualTo(MessageType.SYSTEM);
 
 		// Override the default system text with prompt system
-		content = chatClient.prompt("What's Spring AI?").system("Override default system text").call().content();
+		content = chatClient.prompt("What's Spring AI?")
+			.system("Override default system text")
+			.call()
+			.content()
+			.block();
 
 		assertThat(content).isEqualTo("response");
 		systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -139,7 +143,7 @@ public class ChatClientTest {
 				.param("param2", "value2"))
 			.build();
 
-		var content = chatClient.prompt("What's Spring AI?").call().content();
+		var content = chatClient.prompt("What's Spring AI?").call().content().block();
 
 		assertThat(content).isEqualTo("response");
 
@@ -157,7 +161,11 @@ public class ChatClientTest {
 		assertThat(systemMessage.getMessageType()).isEqualTo(MessageType.SYSTEM);
 
 		// Override single default system parameter
-		content = chatClient.prompt("What's Spring AI?").system(s -> s.param("param1", "value1New")).call().content();
+		content = chatClient.prompt("What's Spring AI?")
+			.system(s -> s.param("param1", "value1New"))
+			.call()
+			.content()
+			.block();
 
 		assertThat(content).isEqualTo("response");
 		systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -177,7 +185,8 @@ public class ChatClientTest {
 		content = chatClient.prompt("What's Spring AI?")
 			.system(s -> s.text("Override default system text {param3}").param("param3", "value3"))
 			.call()
-			.content();
+			.content()
+			.block();
 
 		assertThat(content).isEqualTo("response");
 		systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -230,7 +239,7 @@ public class ChatClientTest {
 				.build();
 		// @formatter:on
 
-		var content = chatClient.prompt().call().content();
+		var content = chatClient.prompt().call().content().block();
 
 		assertThat(content).isEqualTo("response");
 

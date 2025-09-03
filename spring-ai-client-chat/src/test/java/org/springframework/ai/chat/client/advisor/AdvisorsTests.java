@@ -171,20 +171,20 @@ public class AdvisorsTests {
 		}
 
 		@Override
-		public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest, CallAdvisorChain callAdvisorChain) {
+		public Mono<ChatClientResponse> adviseCall(ChatClientRequest chatClientRequest,
+				CallAdvisorChain callAdvisorChain) {
 			this.chatClientRequest = chatClientRequest.mutate()
 				.context(Map.of("aroundCallBefore" + getName(), "AROUND_CALL_BEFORE " + getName(), "lastBefore",
 						getName()))
 				.build();
 
-			var chatClientResponse = callAdvisorChain.nextCall(this.chatClientRequest);
-
-			this.chatClientResponse = chatClientResponse.mutate()
-				.context(
-						Map.of("aroundCallAfter" + getName(), "AROUND_CALL_AFTER " + getName(), "lastAfter", getName()))
-				.build();
-
-			return this.chatClientResponse;
+			return callAdvisorChain.nextCall(this.chatClientRequest).map(chatClientResponse -> {
+				this.chatClientResponse = chatClientResponse.mutate()
+					.context(Map.of("aroundCallAfter" + getName(), "AROUND_CALL_AFTER " + getName(), "lastAfter",
+							getName()))
+					.build();
+				return this.chatClientResponse;
+			});
 		}
 
 		@Override
