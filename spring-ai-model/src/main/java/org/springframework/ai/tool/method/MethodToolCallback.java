@@ -103,15 +103,12 @@ public final class MethodToolCallback implements ToolCallback {
 
 		logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
 
-		// ✅ Mono.defer - 2025最佳实践: 延迟创建Mono,直接返回正确类型
+		// Mono.defer - 延迟创建Mono,每次订阅都重新评估
 		return Mono.defer(() -> {
 			try {
 				validateToolContextSupport(toolContext);
 				Map<String, Object> toolArguments = extractToolArguments(toolInput);
 				Object[] methodArguments = buildMethodArguments(toolArguments, toolContext);
-
-				// 预检查返回类型,避免不必要的反射调用
-				Class<?> returnType = this.toolMethod.getReturnType();
 
 				// 反射调用 - 同步但只是获取Mono/Flux对象本身
 				if (isObjectNotPublic() || isMethodNotPublic()) {
@@ -120,15 +117,19 @@ public final class MethodToolCallback implements ToolCallback {
 
 				Object result = this.toolMethod.invoke(this.toolObject, methodArguments);
 
-				// 根据编译时类型直接返回Mono - 无需instanceof
-				if (Mono.class.isAssignableFrom(returnType)) {
-					return ((Mono<?>) result).map(this::convertToString);
+				// Null处理 - 防御性null返回
+				if (result == null) {
+					return Mono.just("");
 				}
 
-				if (Flux.class.isAssignableFrom(returnType)) {
-					return ((Flux<?>) result).map(this::convertToString)
-						.collectList()
-						.map(list -> String.join("\n", list));
+				// 运行时类型检测 - 处理接口类型和实际返回类型不匹配的情况
+				// 例如: 声明为Publisher<String>但运行时返回Mono
+				if (result instanceof Mono<?> monoResult) {
+					return monoResult.map(this::convertToString);
+				}
+
+				if (result instanceof Flux<?> fluxResult) {
+					return fluxResult.map(this::convertToString).collectList().map(list -> String.join("\n", list));
 				}
 
 				// 非响应式 - 直接包装
