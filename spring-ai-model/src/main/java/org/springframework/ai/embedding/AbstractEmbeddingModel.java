@@ -92,12 +92,20 @@ public abstract class AbstractEmbeddingModel implements EmbeddingModel {
 	}
 
 	@Override
-	public Mono<Integer> dimensions() {
+	public int dimensions() {
 		if (this.embeddingDimensions.get() < 0) {
-			return Mono.fromCallable(() -> dimensions(this, "Test", "Hello World"))
-				.doOnNext(this.embeddingDimensions::set);
+			// Initialize dimensions synchronously
+			int dims = dimensions(this, "Test", "Hello World");
+			this.embeddingDimensions.set(dims);
+			return dims;
 		}
-		return Mono.just(this.embeddingDimensions.get());
+		return this.embeddingDimensions.get();
+	}
+
+	@Override
+	@Deprecated(since = "2.1.0", forRemoval = true)
+	public Mono<Integer> dimensionsReactive() {
+		return Mono.just(dimensions());
 	}
 
 	static class Hints implements RuntimeHintsRegistrar {

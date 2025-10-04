@@ -295,21 +295,19 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 			return;
 		}
 
+		// Get dimensions synchronously (cached in embedding model)
+		int dimensions = this.embeddingModel.dimensions();
+
 		// Create the collection if it does not exist.
 		isCollectionExists().flatMap(exists -> {
 			if (!exists) {
-				return this.embeddingModel.dimensions().flatMap(dimensions -> {
-					var vectorParams = VectorParams.newBuilder()
-						.setDistance(Distance.Cosine)
-						.setSize(dimensions)
-						.build();
-					return this.qdrantClient
-						.createCollection(CreateCollection.newBuilder()
-							.setCollectionName(this.collectionName)
-							.setVectorsConfig(VectorsConfig.newBuilder().setParams(vectorParams).build())
-							.build())
-						.then();
-				});
+				var vectorParams = VectorParams.newBuilder().setDistance(Distance.Cosine).setSize(dimensions).build();
+				return this.qdrantClient
+					.createCollection(CreateCollection.newBuilder()
+						.setCollectionName(this.collectionName)
+						.setVectorsConfig(VectorsConfig.newBuilder().setParams(vectorParams).build())
+						.build())
+					.then();
 			}
 			return Mono.empty();
 		}).block();
@@ -326,7 +324,7 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	public VectorStoreObservationContext.Builder createObservationContextBuilder(String operationName) {
 
 		return VectorStoreObservationContext.builder(VectorStoreProvider.QDRANT.value(), operationName)
-			.dimensions(this.embeddingModel.dimensions().block())
+			.dimensions(this.embeddingModel.dimensions())
 			.collectionName(this.collectionName);
 
 	}

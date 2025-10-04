@@ -65,7 +65,7 @@ class SimpleVectorStoreTests {
 	@BeforeEach
 	void setUp() {
 		this.mockEmbeddingModel = mock(EmbeddingModel.class);
-		when(this.mockEmbeddingModel.dimensions()).thenReturn(Mono.just(3));
+		when(this.mockEmbeddingModel.dimensions()).thenReturn(3);
 		when(this.mockEmbeddingModel.embed(any(String.class))).thenReturn(Mono.just(new float[] { 0.1f, 0.2f, 0.3f }));
 		when(this.mockEmbeddingModel.embed(any(Document.class)))
 			.thenReturn(Mono.just(new float[] { 0.1f, 0.2f, 0.3f }));

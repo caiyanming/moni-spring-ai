@@ -25,6 +25,7 @@ import org.junit.jupiter.params.provider.CsvFileSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.document.Document;
 
@@ -73,9 +74,14 @@ public class AbstractEmbeddingModelTests {
 			public Mono<EmbeddingResponse> call(EmbeddingRequest request) {
 				throw new UnsupportedOperationException("Unimplemented method 'call'");
 			}
+
+			@Override
+			public int dimensions() {
+				return 3;
+			}
 		};
 
-		assertThat(dummy.dimensions().block()).isEqualTo(3);
+		assertThat(dummy.dimensions()).isEqualTo(3);
 	}
 
 	@ParameterizedTest

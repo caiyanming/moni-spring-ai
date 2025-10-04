@@ -109,14 +109,26 @@ public interface EmbeddingModel extends Model<EmbeddingRequest, EmbeddingRespons
 	}
 
 	/**
-	 * Get the number of dimensions of the embedded vectors. Note that by default, this
-	 * method will call the remote Embedding endpoint to get the dimensions of the
-	 * embedded vectors. If the dimensions are known ahead of time, it is recommended to
-	 * override this method.
+	 * Get the number of dimensions of the embedded vectors.
+	 *
+	 * This is a synchronous method because dimensions are a fixed property of the
+	 * embedding model and should not require asynchronous computation. Implementations
+	 * should cache this value during initialization to avoid repeated lookups.
+	 * @return The number of dimensions of the embedded vectors.
+	 * @since 2.1.0
+	 */
+	int dimensions();
+
+	/**
+	 * Get the number of dimensions of the embedded vectors (reactive version).
+	 * @deprecated Use {@link #dimensions()} instead. This method is deprecated to avoid
+	 * blocking calls in reactive contexts. The new synchronous version expects
+	 * implementations to cache dimensions during initialization.
 	 * @return Mono containing the number of dimensions of the embedded vectors.
 	 */
-	default Mono<Integer> dimensions() {
-		return embed("Test String").map(vector -> vector.length);
+	@Deprecated(since = "2.1.0", forRemoval = true)
+	default Mono<Integer> dimensionsReactive() {
+		return Mono.just(dimensions());
 	}
 
 }
