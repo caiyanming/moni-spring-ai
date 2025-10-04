@@ -55,6 +55,10 @@ public abstract class AbstractEmbeddingModel implements EmbeddingModel {
 	 * Return the dimension of the requested embedding generative name. If the generative
 	 * name is unknown uses the EmbeddingModel to perform a dummy EmbeddingModel#embed and
 	 * count the response dimensions.
+	 *
+	 * WARNING: This method may block if the model name is not in the known dimensions
+	 * registry. It should only be called from non-reactive contexts (e.g., Bean
+	 * initialization on main thread, not on Netty event loops).
 	 * @param embeddingModel Fall-back client to determine, empirically the dimensions.
 	 * @param modelName Embedding generative name to retrieve the dimensions for.
 	 * @param dummyContent Dummy content to use for the empirical dimension calculation.
@@ -68,6 +72,7 @@ public abstract class AbstractEmbeddingModel implements EmbeddingModel {
 		}
 		else {
 			// Determine the dimensions empirically.
+			// WARNING: This will block! Only call from safe contexts.
 			// Generate an embedding and count the dimension size;
 			return embeddingModel.embed(dummyContent).block().length;
 		}

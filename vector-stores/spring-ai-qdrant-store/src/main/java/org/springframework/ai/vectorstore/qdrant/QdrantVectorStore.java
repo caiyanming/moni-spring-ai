@@ -291,12 +291,14 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	@Override
 	public void afterPropertiesSet() throws Exception {
 
+		// CRITICAL: Initialize dimensions early on main thread to avoid blocking on Netty
+		// event loop later. This call may block if model is not in known dimensions
+		// registry, but it's safe here as we're in Bean initialization phase.
+		int dimensions = this.embeddingModel.dimensions();
+
 		if (!this.initializeSchema) {
 			return;
 		}
-
-		// Get dimensions synchronously (cached in embedding model)
-		int dimensions = this.embeddingModel.dimensions();
 
 		// Create the collection if it does not exist.
 		isCollectionExists().flatMap(exists -> {
