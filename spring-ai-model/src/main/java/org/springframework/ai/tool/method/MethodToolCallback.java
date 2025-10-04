@@ -103,45 +103,66 @@ public final class MethodToolCallback implements ToolCallback {
 
 		logger.debug("Starting execution of tool: {}", this.toolDefinition.name());
 
-		// Prepare method invocation
-		return Mono.fromCallable(() -> {
-			validateToolContextSupport(toolContext);
-			Map<String, Object> toolArguments = extractToolArguments(toolInput);
-			return buildMethodArguments(toolArguments, toolContext);
-		}).flatMap(methodArguments -> {
-			// Call the method and handle reactive return types
-			Object result = callMethod(methodArguments);
+		// ✅ Mono.defer - 2025最佳实践: 延迟创建Mono,直接返回正确类型
+		return Mono.defer(() -> {
+			try {
+				validateToolContextSupport(toolContext);
+				Map<String, Object> toolArguments = extractToolArguments(toolInput);
+				Object[] methodArguments = buildMethodArguments(toolArguments, toolContext);
 
-			// Check if the result is a reactive type
-			if (result instanceof Mono<?> monoResult) {
-				// Handle Mono<String> return type
-				return monoResult.map(value -> {
-					logger.debug("Successful execution of reactive tool: {}", this.toolDefinition.name());
-					// Assume Tool methods return Mono<String> directly
-					return value instanceof String ? (String) value : value.toString();
-				});
+				// 预检查返回类型,避免不必要的反射调用
+				Class<?> returnType = this.toolMethod.getReturnType();
+
+				// 反射调用 - 同步但只是获取Mono/Flux对象本身
+				if (isObjectNotPublic() || isMethodNotPublic()) {
+					this.toolMethod.setAccessible(true);
+				}
+
+				Object result = this.toolMethod.invoke(this.toolObject, methodArguments);
+
+				// 根据编译时类型直接返回Mono - 无需instanceof
+				if (Mono.class.isAssignableFrom(returnType)) {
+					return ((Mono<?>) result).map(this::convertToString);
+				}
+
+				if (Flux.class.isAssignableFrom(returnType)) {
+					return ((Flux<?>) result).map(this::convertToString)
+						.collectList()
+						.map(list -> String.join("\n", list));
+				}
+
+				// 非响应式 - 直接包装
+				return Mono.just(convertToString(result));
+
 			}
-			else if (result instanceof Flux<?> fluxResult) {
-				// Handle Flux<String> return type - collect to single string
-				return fluxResult.collectList().map(list -> {
-					logger.debug("Successful execution of reactive tool: {}", this.toolDefinition.name());
-					// Assume Tool methods return Flux<String> directly
-					return String.join("\n", list.stream().map(Object::toString).toList());
-				});
+			catch (IllegalAccessException ex) {
+				return Mono.error(new IllegalStateException("Could not access method: " + ex.getMessage(), ex));
 			}
-			else {
-				// Handle non-reactive return type
-				logger.debug("Successful execution of tool: {}", this.toolDefinition.name());
-				Type returnType = this.toolMethod.getGenericReturnType();
-				String converted = this.toolCallResultConverter.convert(result, returnType);
-				return Mono.just(converted);
+			catch (InvocationTargetException ex) {
+				return Mono.error(new ToolExecutionException(this.toolDefinition, ex.getCause()));
 			}
-		}).onErrorMap(ex -> {
-			if (ex instanceof ToolExecutionException) {
-				return ex;
+			catch (Exception ex) {
+				return Mono.error(ex instanceof ToolExecutionException ? ex
+						: new ToolExecutionException(this.toolDefinition, ex));
 			}
-			return new ToolExecutionException(this.toolDefinition, ex);
 		});
+	}
+
+	/**
+	 * 统一的String转换逻辑
+	 */
+	private String convertToString(@Nullable Object value) {
+		if (value == null) {
+			return "";
+		}
+
+		if (value instanceof String str) {
+			return str;
+		}
+
+		// 使用converter处理复杂类型
+		Type genericReturnType = this.toolMethod.getGenericReturnType();
+		return this.toolCallResultConverter.convert(value, genericReturnType);
 	}
 
 	private void validateToolContextSupport(@Nullable ToolContext toolContext) {
@@ -182,25 +203,6 @@ public final class MethodToolCallback implements ToolCallback {
 		// For generic types, use the fromJson method that accepts Type
 		String json = JsonParser.toJson(value);
 		return JsonParser.fromJson(json, type);
-	}
-
-	@Nullable
-	private Object callMethod(Object[] methodArguments) {
-		if (isObjectNotPublic() || isMethodNotPublic()) {
-			this.toolMethod.setAccessible(true);
-		}
-
-		Object result;
-		try {
-			result = this.toolMethod.invoke(this.toolObject, methodArguments);
-		}
-		catch (IllegalAccessException ex) {
-			throw new IllegalStateException("Could not access method: " + ex.getMessage(), ex);
-		}
-		catch (InvocationTargetException ex) {
-			throw new ToolExecutionException(this.toolDefinition, ex.getCause());
-		}
-		return result;
 	}
 
 	private boolean isObjectNotPublic() {
