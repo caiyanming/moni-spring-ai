@@ -18,6 +18,7 @@ package org.springframework.ai.chat;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -75,10 +76,10 @@ class ChatModelTests {
 			assertThat(prompt).isNotNull();
 			assertThat(prompt.getContents()).isEqualTo(userMessage);
 
-			return response;
+			return reactor.core.publisher.Mono.just(response);
 		});
 
-		assertThat(mockClient.call(userMessage)).isEqualTo(responseMessage);
+		StepVerifier.create(mockClient.call(userMessage)).expectNext(responseMessage).verifyComplete();
 
 		verify(mockClient, times(1)).call(eq(userMessage));
 		verify(mockClient, times(1)).call(isA(Prompt.class));

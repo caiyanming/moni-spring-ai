@@ -27,6 +27,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import reactor.core.publisher.Flux;
+import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -108,7 +109,10 @@ class ChatResponseTests {
 
 		AtomicReference<ChatResponse> aggregatedResponseRef = new AtomicReference<>();
 
-		aggregator.aggregate(streamingResponse, aggregatedResponseRef::set).blockLast();
+		StepVerifier.create(aggregator.aggregate(streamingResponse, aggregatedResponseRef::set))
+			.expectNext(chunk1)
+			.expectNext(chunk2)
+			.verifyComplete();
 
 		ChatResponse finalResponse = aggregatedResponseRef.get();
 		assertThat(finalResponse).isNotNull();

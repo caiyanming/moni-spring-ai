@@ -43,6 +43,7 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Bean;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -78,10 +79,9 @@ class DefaultToolCallingManagerIT {
 					List.of(new AssistantMessage.ToolCall("toolA", "function", "toolA", "{}"))))))
 			.build();
 
-		ToolExecutionResult toolExecutionResult = this.toolCallingManager.executeToolCalls(prompt, chatResponse)
-			.block();
-
-		assertThat(toolExecutionResult).isNotNull();
+		StepVerifier.create(this.toolCallingManager.executeToolCalls(prompt, chatResponse))
+			.assertNext(toolExecutionResult -> assertThat(toolExecutionResult).isNotNull())
+			.verifyComplete();
 
 		ChatResponseMetadata responseMetadata = chatResponse.getMetadata();
 		assertThat(responseMetadata).isNotNull();

@@ -264,15 +264,15 @@ class CassandraRichSchemaVectorStoreIT {
 							for (int i = docsPerAdd; i >= 0; --i) {
 
 								documents.add(new Document(
-										RandomStringUtils.randomAlphanumeric(4) + "§¶"
+										RandomStringUtils.insecure().nextAlphanumeric(4) + "§¶"
 												+ ThreadLocalRandom.current().nextInt(1, 10),
-										RandomStringUtils.randomAlphanumeric(1024), Map.of("revision",
+										RandomStringUtils.insecure().nextAlphanumeric(1024), Map.of("revision",
 												ThreadLocalRandom.current().nextInt(1, 100000), "id", 1000)));
 							}
 							store.add(documents);
 
 							var results = store.similaritySearch(SearchRequest.builder()
-								.query(RandomStringUtils.randomAlphanumeric(20))
+								.query(RandomStringUtils.insecure().nextAlphanumeric(20))
 								.topK(10)
 								.build());
 

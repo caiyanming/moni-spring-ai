@@ -40,6 +40,7 @@ import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -147,10 +148,12 @@ class DefaultToolCallingManagerTests {
 	@Test
 	void whenNoToolCallInChatResponseThenThrow() {
 		DefaultToolCallingManager defaultToolExecutor = DefaultToolCallingManager.builder().build();
-		assertThatThrownBy(() -> defaultToolExecutor.executeToolCalls(mock(Prompt.class),
-				ChatResponse.builder().generations(List.of()).build()))
-			.isInstanceOf(IllegalStateException.class)
-			.hasMessage("No tool call requested by the chat model");
+		StepVerifier
+			.create(defaultToolExecutor.executeToolCalls(mock(Prompt.class),
+					ChatResponse.builder().generations(List.of()).build()))
+			.expectErrorSatisfies(throwable -> assertThat(throwable).isInstanceOf(IllegalStateException.class)
+				.hasMessage("No tool call requested by the chat model"))
+			.verify();
 	}
 
 	@Test
@@ -170,9 +173,9 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse))
+			.assertNext(result -> assertThat(result.conversationHistory()).contains(expectedToolResponse))
+			.verifyComplete();
 	}
 
 	@Test
@@ -192,10 +195,10 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
-		assertThat(toolExecutionResult.returnDirect()).isTrue();
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse)).assertNext(result -> {
+			assertThat(result.conversationHistory()).contains(expectedToolResponse);
+			assertThat(result.returnDirect()).isTrue();
+		}).verifyComplete();
 	}
 
 	@Test
@@ -219,9 +222,9 @@ class DefaultToolCallingManagerTests {
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!"),
 						new ToolResponseMessage.ToolResponse("toolB", "toolB", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse))
+			.assertNext(result -> assertThat(result.conversationHistory()).contains(expectedToolResponse))
+			.verifyComplete();
 	}
 
 	@Test
@@ -241,9 +244,9 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse))
+			.assertNext(result -> assertThat(result.conversationHistory()).contains(expectedToolResponse))
+			.verifyComplete();
 	}
 
 	@Test
@@ -267,10 +270,10 @@ class DefaultToolCallingManagerTests {
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!"),
 						new ToolResponseMessage.ToolResponse("toolB", "toolB", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
-		assertThat(toolExecutionResult.returnDirect()).isTrue();
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse)).assertNext(result -> {
+			assertThat(result.conversationHistory()).contains(expectedToolResponse);
+			assertThat(result.returnDirect()).isTrue();
+		}).verifyComplete();
 	}
 
 	@Test
@@ -294,10 +297,10 @@ class DefaultToolCallingManagerTests {
 				List.of(new ToolResponseMessage.ToolResponse("toolA", "toolA", "Mission accomplished!"),
 						new ToolResponseMessage.ToolResponse("toolB", "toolB", "Mission accomplished!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
-		assertThat(toolExecutionResult.returnDirect()).isFalse();
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse)).assertNext(result -> {
+			assertThat(result.conversationHistory()).contains(expectedToolResponse);
+			assertThat(result.returnDirect()).isFalse();
+		}).verifyComplete();
 	}
 
 	@Test
@@ -317,9 +320,9 @@ class DefaultToolCallingManagerTests {
 		ToolResponseMessage expectedToolResponse = new ToolResponseMessage(
 				List.of(new ToolResponseMessage.ToolResponse("toolC", "toolC", "You failed this city!")));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse))
+			.assertNext(result -> assertThat(result.conversationHistory()).contains(expectedToolResponse))
+			.verifyComplete();
 	}
 
 	@Test
@@ -360,9 +363,9 @@ class DefaultToolCallingManagerTests {
 						new ToolResponseMessage.ToolResponse("toolB", "toolB",
 								TestGenericClass.CALL_WITH_TOOL_CONTEXT_RESULT_JSON)));
 
-		ToolExecutionResult toolExecutionResult = toolCallingManager.executeToolCalls(prompt, chatResponse).block();
-
-		assertThat(toolExecutionResult.conversationHistory()).contains(expectedToolResponse);
+		StepVerifier.create(toolCallingManager.executeToolCalls(prompt, chatResponse))
+			.assertNext(result -> assertThat(result.conversationHistory()).contains(expectedToolResponse))
+			.verifyComplete();
 	}
 
 	static class TestToolCallback implements ToolCallback {

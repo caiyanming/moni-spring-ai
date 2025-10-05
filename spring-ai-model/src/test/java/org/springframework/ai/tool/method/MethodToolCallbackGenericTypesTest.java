@@ -22,11 +22,11 @@ import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
+import reactor.test.StepVerifier;
+
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Tests for {@link MethodToolCallback} with generic types.
@@ -61,10 +61,9 @@ class MethodToolCallbackGenericTypesTest {
 				""";
 
 		// Call the tool
-		String result = callback.call(toolInput).block();
-
-		// Verify the result
-		assertThat(result).isEqualTo("3 strings processed: [one, two, three]");
+		StepVerifier.create(callback.call(toolInput))
+			.expectNext("3 strings processed: [one, two, three]")
+			.verifyComplete();
 	}
 
 	@Test
@@ -95,10 +94,9 @@ class MethodToolCallbackGenericTypesTest {
 				""";
 
 		// Call the tool
-		String result = callback.call(toolInput).block();
-
-		// Verify the result
-		assertThat(result).isEqualTo("3 entries processed: {one=1, two=2, three=3}");
+		StepVerifier.create(callback.call(toolInput))
+			.expectNext("3 entries processed: {one=1, two=2, three=3}")
+			.verifyComplete();
 	}
 
 	@Test
@@ -132,10 +130,9 @@ class MethodToolCallbackGenericTypesTest {
 				""";
 
 		// Call the tool
-		String result = callback.call(toolInput).block();
-
-		// Verify the result
-		assertThat(result).isEqualTo("2 maps processed: [{a=1, b=2}, {c=3, d=4}]");
+		StepVerifier.create(callback.call(toolInput))
+			.expectNext("2 maps processed: [{a=1, b=2}, {c=3, d=4}]")
+			.verifyComplete();
 	}
 
 	@Test
@@ -167,10 +164,9 @@ class MethodToolCallbackGenericTypesTest {
 		ToolContext toolContext = new ToolContext(Map.of("foo", "bar"));
 
 		// Call the tool
-		String result = callback.call(toolInput, toolContext).block();
-
-		// Verify the result
-		assertThat(result).isEqualTo("1 entries processed {foo=bar}");
+		StepVerifier.create(callback.call(toolInput, toolContext))
+			.expectNext("1 entries processed {foo=bar}")
+			.verifyComplete();
 	}
 
 	/**
