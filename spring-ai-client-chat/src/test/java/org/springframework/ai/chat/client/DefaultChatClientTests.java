@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.client.advisor.api.Advisor;
@@ -60,6 +61,7 @@ import org.springframework.util.MimeTypeUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -70,6 +72,22 @@ import static org.mockito.Mockito.when;
  * @author Thomas Vitale
  */
 class DefaultChatClientTests {
+
+	private <T> void verifyMono(Mono<T> mono, Consumer<T> assertions) {
+		StepVerifier.create(mono).assertNext(assertions).verifyComplete();
+	}
+
+	private <T> void verifyMonoEmpty(Mono<T> mono) {
+		StepVerifier.create(mono).expectNextCount(0).verifyComplete();
+	}
+
+	private <T> void verifyFlux(Flux<T> flux, Consumer<T> assertions) {
+		StepVerifier.create(flux).assertNext(assertions).verifyComplete();
+	}
+
+	private <T> void verifyFluxEmpty(Flux<T> flux) {
+		StepVerifier.create(flux).expectNextCount(0).verifyComplete();
+	}
 
 	// Constructor
 
@@ -83,7 +101,11 @@ class DefaultChatClientTests {
 
 	@Test
 	void whenPromptThenReturn() {
-		ChatClient chatClient = new DefaultChatClientBuilder(mock(ChatModel.class)).build();
+		ChatModel chatModel = mock(ChatModel.class);
+		given(chatModel.call(any(Prompt.class)))
+			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage((String) null))))));
+
+		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		ChatClient.ChatClientRequestSpec spec = chatClient.prompt();
 		assertThat(spec).isNotNull();
 	}
@@ -700,12 +722,12 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ChatClientResponse chatClientResponse = spec.chatClientResponse();
-		assertThat(chatClientResponse).isNotNull();
-
-		ChatResponse chatResponse = chatClientResponse.chatResponse();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyMono(spec.chatClientResponse(), chatClientResponse -> {
+			assertThat(chatClientResponse).isNotNull();
+			ChatResponse chatResponse = chatClientResponse.chatResponse();
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(1);
@@ -725,9 +747,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ChatResponse chatResponse = spec.chatResponse();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyMono(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(1);
@@ -748,9 +771,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ChatResponse chatResponse = spec.chatResponse();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyMono(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(2);
@@ -773,9 +797,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ChatResponse chatResponse = spec.chatResponse();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyMono(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(3);
@@ -800,9 +825,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ChatResponse chatResponse = spec.chatResponse();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyMono(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(3);
@@ -815,7 +841,7 @@ class DefaultChatClientTests {
 	void whenChatResponseIsNull() {
 		ChatModel chatModel = mock(ChatModel.class);
 		ArgumentCaptor<Prompt> promptCaptor = ArgumentCaptor.forClass(Prompt.class);
-		given(chatModel.call(promptCaptor.capture())).willReturn(null);
+		given(chatModel.call(promptCaptor.capture())).willReturn(Mono.empty());
 
 		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
@@ -823,8 +849,7 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ChatResponse chatResponse = spec.chatResponse();
-		assertThat(chatResponse).isNull();
+		verifyMonoEmpty(spec.chatResponse());
 	}
 
 	@Test
@@ -840,8 +865,7 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		String content = spec.content();
-		assertThat(content).isNull();
+		verifyMonoEmpty(spec.content());
 	}
 
 	@Test
@@ -870,12 +894,12 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ResponseEntity<ChatResponse, List<String>> responseEntity = spec
-			.responseEntity(new ParameterizedTypeReference<>() {
-			});
-		assertThat(responseEntity).isNotNull();
-		assertThat(responseEntity.response()).isNotNull();
-		assertThat(responseEntity.entity()).isNull();
+		verifyMono(spec.responseEntity(new ParameterizedTypeReference<>() {
+		}), responseEntity -> {
+			assertThat(responseEntity).isNotNull();
+			assertThat(responseEntity.response()).isNotNull();
+			assertThat(responseEntity.entity()).isNull();
+		});
 	}
 
 	@Test
@@ -897,11 +921,11 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ResponseEntity<ChatResponse, List<Person>> responseEntity = spec
-			.responseEntity(new ParameterizedTypeReference<>() {
-			});
-		assertThat(responseEntity.response()).isNotNull();
-		assertThat(responseEntity.entity()).hasSize(3);
+		verifyMono(spec.responseEntity(new ParameterizedTypeReference<>() {
+		}), responseEntity -> {
+			assertThat(responseEntity.response()).isNotNull();
+			assertThat((List<?>) responseEntity.entity()).hasSize(3);
+		});
 	}
 
 	@Test
@@ -930,10 +954,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ResponseEntity<ChatResponse, List<String>> responseEntity = spec
-			.responseEntity(new ListOutputConverter(new DefaultConversionService()));
-		assertThat(responseEntity.response()).isNotNull();
-		assertThat(responseEntity.entity()).isNull();
+		verifyMono(spec.responseEntity(new ListOutputConverter(new DefaultConversionService())), responseEntity -> {
+			assertThat(responseEntity.response()).isNotNull();
+			assertThat(responseEntity.entity()).isNull();
+		});
 	}
 
 	@Test
@@ -951,10 +975,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ResponseEntity<ChatResponse, List<String>> responseEntity = spec
-			.responseEntity(new ListOutputConverter(new DefaultConversionService()));
-		assertThat(responseEntity.response()).isNotNull();
-		assertThat(responseEntity.entity()).hasSize(3);
+		verifyMono(spec.responseEntity(new ListOutputConverter(new DefaultConversionService())), responseEntity -> {
+			assertThat(responseEntity.response()).isNotNull();
+			assertThat((List<?>) responseEntity.entity()).hasSize(3);
+		});
 	}
 
 	@Test
@@ -982,9 +1006,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ResponseEntity<ChatResponse, String> responseEntity = spec.responseEntity(String.class);
-		assertThat(responseEntity.response()).isNotNull();
-		assertThat(responseEntity.entity()).isNull();
+		verifyMono(spec.responseEntity(String.class), responseEntity -> {
+			assertThat(responseEntity.response()).isNotNull();
+			assertThat(responseEntity.entity()).isNull();
+		});
 	}
 
 	@Test
@@ -1002,10 +1027,11 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		ResponseEntity<ChatResponse, Person> responseEntity = spec.responseEntity(Person.class);
-		assertThat(responseEntity.response()).isNotNull();
-		assertThat(responseEntity.entity()).isNotNull();
-		assertThat(responseEntity.entity().name).isEqualTo("James Bond");
+		verifyMono(spec.responseEntity(Person.class), responseEntity -> {
+			assertThat(responseEntity.response()).isNotNull();
+			assertThat(responseEntity.entity()).isNotNull();
+			assertThat(responseEntity.entity().name).isEqualTo("James Bond");
+		});
 	}
 
 	@Test
@@ -1034,9 +1060,8 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		List<String> entity = spec.entity(new ParameterizedTypeReference<>() {
-		});
-		assertThat(entity).isNull();
+		verifyMonoEmpty(spec.entity(new ParameterizedTypeReference<>() {
+		}));
 	}
 
 	@Test
@@ -1058,9 +1083,8 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		List<Person> entity = spec.entity(new ParameterizedTypeReference<>() {
-		});
-		assertThat(entity).hasSize(3);
+		verifyMono(spec.entity(new ParameterizedTypeReference<>() {
+		}), result -> assertThat((List<?>) result).hasSize(3));
 	}
 
 	@Test
@@ -1078,14 +1102,17 @@ class DefaultChatClientTests {
 
 	@Test
 	void whenEntityWithConverterAndChatResponseContentNull() {
-		ChatClient chatClient = new DefaultChatClientBuilder(mock(ChatModel.class)).build();
+		ChatModel chatModel = mock(ChatModel.class);
+		when(chatModel.call(any(Prompt.class)))
+			.thenReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage((String) null))))));
+
+		ChatClient chatClient = new DefaultChatClientBuilder(chatModel).build();
 		DefaultChatClient.DefaultChatClientRequestSpec chatClientRequestSpec = (DefaultChatClient.DefaultChatClientRequestSpec) chatClient
 			.prompt("my question");
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		List<String> entity = spec.entity(new ListOutputConverter(new DefaultConversionService()));
-		assertThat(entity).isNull();
+		verifyMonoEmpty(spec.entity(new ListOutputConverter(new DefaultConversionService())));
 	}
 
 	@Test
@@ -1103,8 +1130,8 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		List<String> entity = spec.entity(new ListOutputConverter(new DefaultConversionService()));
-		assertThat(entity).hasSize(3);
+		verifyMono(spec.entity(new ListOutputConverter(new DefaultConversionService())),
+				result -> assertThat((List<?>) result).hasSize(3));
 	}
 
 	@Test
@@ -1132,8 +1159,7 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		String entity = spec.entity(String.class);
-		assertThat(entity).isNull();
+		verifyMonoEmpty(spec.entity(String.class));
 	}
 
 	@Test
@@ -1151,9 +1177,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultCallResponseSpec spec = (DefaultChatClient.DefaultCallResponseSpec) chatClientRequestSpec
 			.call();
 
-		Person entity = spec.entity(Person.class);
-		assertThat(entity).isNotNull();
-		assertThat(entity.name()).isEqualTo("James Bond");
+		verifyMono(spec.entity(Person.class), result -> {
+			assertThat(result).isNotNull();
+			assertThat(result.name()).isEqualTo("James Bond");
+		});
 	}
 
 	// DefaultStreamResponseSpec
@@ -1213,12 +1240,12 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultStreamResponseSpec spec = (DefaultChatClient.DefaultStreamResponseSpec) chatClientRequestSpec
 			.stream();
 
-		ChatClientResponse chatClientResponse = spec.chatClientResponse().blockLast();
-		assertThat(chatClientResponse).isNotNull();
-
-		ChatResponse chatResponse = chatClientResponse.chatResponse();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyFlux(spec.chatClientResponse(), chatClientResponse -> {
+			assertThat(chatClientResponse).isNotNull();
+			ChatResponse chatResponse = chatClientResponse.chatResponse();
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(1);
@@ -1238,9 +1265,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultStreamResponseSpec spec = (DefaultChatClient.DefaultStreamResponseSpec) chatClientRequestSpec
 			.stream();
 
-		ChatResponse chatResponse = spec.chatResponse().blockLast();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyFlux(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(1);
@@ -1261,9 +1289,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultStreamResponseSpec spec = (DefaultChatClient.DefaultStreamResponseSpec) chatClientRequestSpec
 			.stream();
 
-		ChatResponse chatResponse = spec.chatResponse().blockLast();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyFlux(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(2);
@@ -1286,9 +1315,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultStreamResponseSpec spec = (DefaultChatClient.DefaultStreamResponseSpec) chatClientRequestSpec
 			.stream();
 
-		ChatResponse chatResponse = spec.chatResponse().blockLast();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyFlux(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(3);
@@ -1314,9 +1344,10 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultStreamResponseSpec spec = (DefaultChatClient.DefaultStreamResponseSpec) chatClientRequestSpec
 			.stream();
 
-		ChatResponse chatResponse = spec.chatResponse().blockLast();
-		assertThat(chatResponse).isNotNull();
-		assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		verifyFlux(spec.chatResponse(), chatResponse -> {
+			assertThat(chatResponse).isNotNull();
+			assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("response");
+		});
 
 		Prompt actualPrompt = promptCaptor.getValue();
 		assertThat(actualPrompt.getInstructions()).hasSize(3);
@@ -1338,8 +1369,7 @@ class DefaultChatClientTests {
 		DefaultChatClient.DefaultStreamResponseSpec spec = (DefaultChatClient.DefaultStreamResponseSpec) chatClientRequestSpec
 			.stream();
 
-		String content = spec.content().blockLast();
-		assertThat(content).isNull();
+		verifyFluxEmpty(spec.content());
 	}
 
 	// DefaultChatClientRequestSpec

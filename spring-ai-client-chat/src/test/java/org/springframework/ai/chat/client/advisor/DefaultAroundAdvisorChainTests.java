@@ -22,6 +22,8 @@ import java.util.List;
 import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
@@ -87,10 +89,10 @@ class DefaultAroundAdvisorChainTests {
 	void getCallAdvisors() {
 		CallAdvisor mockAdvisor1 = mock(CallAdvisor.class);
 		when(mockAdvisor1.getName()).thenReturn("advisor1");
-		when(mockAdvisor1.adviseCall(any(), any())).thenReturn(ChatClientResponse.builder().build());
+		when(mockAdvisor1.adviseCall(any(), any())).thenReturn(Mono.just(ChatClientResponse.builder().build()));
 		CallAdvisor mockAdvisor2 = mock(CallAdvisor.class);
 		when(mockAdvisor2.getName()).thenReturn("advisor2");
-		when(mockAdvisor2.adviseCall(any(), any())).thenReturn(ChatClientResponse.builder().build());
+		when(mockAdvisor2.adviseCall(any(), any())).thenReturn(Mono.just(ChatClientResponse.builder().build()));
 
 		List<CallAdvisor> advisors = List.of(mockAdvisor1, mockAdvisor2);
 		CallAdvisorChain chain = DefaultAroundAdvisorChain.builder(ObservationRegistry.NOOP).pushAll(advisors).build();
@@ -118,10 +120,14 @@ class DefaultAroundAdvisorChainTests {
 			.build();
 		assertThat(chain.getStreamAdvisors()).containsExactlyInAnyOrder(advisors.toArray(new StreamAdvisor[0]));
 
-		chain.nextStream(ChatClientRequest.builder().prompt(new Prompt("Hello")).build()).blockLast();
+		StepVerifier.create(chain.nextStream(ChatClientRequest.builder().prompt(new Prompt("Hello")).build()))
+			.expectNextCount(1)
+			.verifyComplete();
 		assertThat(chain.getStreamAdvisors()).containsExactlyInAnyOrder(advisors.toArray(new StreamAdvisor[0]));
 
-		chain.nextStream(ChatClientRequest.builder().prompt(new Prompt("Hello")).build()).blockLast();
+		StepVerifier.create(chain.nextStream(ChatClientRequest.builder().prompt(new Prompt("Hello")).build()))
+			.expectNextCount(1)
+			.verifyComplete();
 		assertThat(chain.getStreamAdvisors()).containsExactlyInAnyOrder(advisors.toArray(new StreamAdvisor[0]));
 	}
 

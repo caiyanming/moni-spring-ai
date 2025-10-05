@@ -26,6 +26,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -65,18 +66,19 @@ public class ChatClientResponseEntityTests {
 
 		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(Mono.just(chatResponse));
 
-		ResponseEntity<ChatResponse, MyBean> responseEntity = ChatClient.builder(this.chatModel)
-			.build()
-			.prompt()
-			.user("Tell me about John")
-			.call()
-			.responseEntity(MyBean.class)
-			.block();
-
-		assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
-		assertThat(responseEntity.getResponse().getMetadata().get("key1").toString()).isEqualTo("value1");
-
-		assertThat(responseEntity.getEntity()).isEqualTo(new MyBean("John", 30));
+		StepVerifier
+			.create(ChatClient.builder(this.chatModel)
+				.build()
+				.prompt()
+				.user("Tell me about John")
+				.call()
+				.responseEntity(MyBean.class))
+			.assertNext(responseEntity -> {
+				assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
+				assertThat(responseEntity.getResponse().getMetadata().get("key1").toString()).isEqualTo("value1");
+				assertThat(responseEntity.getEntity()).isEqualTo(new MyBean("John", 30));
+			})
+			.verifyComplete();
 
 		Message userMessage = this.promptCaptor.getValue().getInstructions().get(0);
 		assertThat(userMessage.getMessageType()).isEqualTo(MessageType.USER);
@@ -95,19 +97,19 @@ public class ChatClientResponseEntityTests {
 
 		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(Mono.just(chatResponse));
 
-		ResponseEntity<ChatResponse, List<MyBean>> responseEntity = ChatClient.builder(this.chatModel)
+		StepVerifier.create(ChatClient.builder(this.chatModel)
 			.build()
 			.prompt()
 			.user("Tell me about them")
 			.call()
-			.responseEntity(new ParameterizedTypeReference<>() {
-
-			})
-			.block();
-
-		assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
-		assertThat(responseEntity.getEntity().get(0)).isEqualTo(new MyBean("Max", 10));
-		assertThat(responseEntity.getEntity().get(1)).isEqualTo(new MyBean("Adi", 13));
+			.responseEntity(new ParameterizedTypeReference<List<MyBean>>() {
+			})).assertNext(responseEntity -> {
+				assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
+				@SuppressWarnings("unchecked")
+				List<MyBean> beans = (List<MyBean>) responseEntity.getEntity();
+				assertThat(beans.get(0)).isEqualTo(new MyBean("Max", 10));
+				assertThat(beans.get(1)).isEqualTo(new MyBean("Adi", 13));
+			}).verifyComplete();
 
 		Message userMessage = this.promptCaptor.getValue().getInstructions().get(0);
 		assertThat(userMessage.getMessageType()).isEqualTo(MessageType.USER);
@@ -123,17 +125,19 @@ public class ChatClientResponseEntityTests {
 
 		given(this.chatModel.call(this.promptCaptor.capture())).willReturn(Mono.just(chatResponse));
 
-		ResponseEntity<ChatResponse, Map<String, Object>> responseEntity = ChatClient.builder(this.chatModel)
-			.build()
-			.prompt()
-			.user("Tell me about Max")
-			.call()
-			.responseEntity(new MapOutputConverter())
-			.block();
-
-		assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
-		assertThat(responseEntity.getEntity().get("name")).isEqualTo("Max");
-		assertThat(responseEntity.getEntity().get("age")).isEqualTo(10);
+		StepVerifier
+			.create(ChatClient.builder(this.chatModel)
+				.build()
+				.prompt()
+				.user("Tell me about Max")
+				.call()
+				.responseEntity(new MapOutputConverter()))
+			.assertNext(responseEntity -> {
+				assertThat(responseEntity.getResponse()).isEqualTo(chatResponse);
+				assertThat(responseEntity.getEntity().get("name")).isEqualTo("Max");
+				assertThat(responseEntity.getEntity().get("age")).isEqualTo(10);
+			})
+			.verifyComplete();
 
 		Message userMessage = this.promptCaptor.getValue().getInstructions().get(0);
 		assertThat(userMessage.getMessageType()).isEqualTo(MessageType.USER);

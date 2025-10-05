@@ -19,6 +19,7 @@ package org.springframework.ai.chat.client;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -30,6 +31,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
@@ -66,8 +68,20 @@ public class ChatClientTest {
 	@Captor
 	ArgumentCaptor<Prompt> promptCaptor;
 
+	private String awaitContent(Mono<String> contentMono) {
+		AtomicReference<String> valueRef = new AtomicReference<>();
+		StepVerifier.create(contentMono.flux().collectList())
+			.consumeNextWith(values -> valueRef.set(values.isEmpty() ? null : values.get(0)))
+			.verifyComplete();
+		return valueRef.get();
+	}
+
 	private String join(Flux<String> fluxContent) {
-		return fluxContent.collectList().block().stream().collect(Collectors.joining());
+		AtomicReference<String> valueRef = new AtomicReference<>("");
+		StepVerifier.create(fluxContent.collectList())
+			.consumeNextWith(values -> valueRef.set(values.stream().collect(Collectors.joining())))
+			.verifyComplete();
+		return valueRef.get();
 	}
 
 	// ChatClient Builder Tests
@@ -86,7 +100,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).defaultSystem("Default system text").build();
 
-		var content = chatClient.prompt("What's Spring AI?").call().content().block();
+		var content = awaitContent(chatClient.prompt("What's Spring AI?").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -103,11 +117,8 @@ public class ChatClientTest {
 		assertThat(systemMessage.getMessageType()).isEqualTo(MessageType.SYSTEM);
 
 		// Override the default system text with prompt system
-		content = chatClient.prompt("What's Spring AI?")
-			.system("Override default system text")
-			.call()
-			.content()
-			.block();
+		content = awaitContent(
+				chatClient.prompt("What's Spring AI?").system("Override default system text").call().content());
 
 		assertThat(content).isEqualTo("response");
 		systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -143,7 +154,7 @@ public class ChatClientTest {
 				.param("param2", "value2"))
 			.build();
 
-		var content = chatClient.prompt("What's Spring AI?").call().content().block();
+		var content = awaitContent(chatClient.prompt("What's Spring AI?").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -161,11 +172,8 @@ public class ChatClientTest {
 		assertThat(systemMessage.getMessageType()).isEqualTo(MessageType.SYSTEM);
 
 		// Override single default system parameter
-		content = chatClient.prompt("What's Spring AI?")
-			.system(s -> s.param("param1", "value1New"))
-			.call()
-			.content()
-			.block();
+		content = awaitContent(
+				chatClient.prompt("What's Spring AI?").system(s -> s.param("param1", "value1New")).call().content());
 
 		assertThat(content).isEqualTo("response");
 		systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -182,11 +190,10 @@ public class ChatClientTest {
 		assertThat(systemMessage.getMessageType()).isEqualTo(MessageType.SYSTEM);
 
 		// Override default system text
-		content = chatClient.prompt("What's Spring AI?")
+		content = awaitContent(chatClient.prompt("What's Spring AI?")
 			.system(s -> s.text("Override default system text {param3}").param("param3", "value3"))
 			.call()
-			.content()
-			.block();
+			.content());
 
 		assertThat(content).isEqualTo("response");
 		systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -239,7 +246,7 @@ public class ChatClientTest {
 				.build();
 		// @formatter:on
 
-		var content = chatClient.prompt().call().content().block();
+		var content = awaitContent(chatClient.prompt().call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -291,7 +298,7 @@ public class ChatClientTest {
 				.build();
 		// @formatter:on
 
-		content = chatClient.prompt().call().content();
+		content = awaitContent(chatClient.prompt().call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -368,14 +375,14 @@ public class ChatClientTest {
 								new DefaultResourceLoader().getResource("classpath:/bikes.json")))
 				.build();
 
-		var content = chatClient
-				.prompt()
-					.system("New default system text {param1}, {param2}")
-					.user(u -> u.param("uparam1", "userValue1")
-						.param("uparam2", "userValue2"))
-					.toolNames("fun5")
-				.mutate().build() // mutate and build new prompt
-				.prompt().call().content();
+		var content = awaitContent(chatClient
+			.prompt()
+				.system("New default system text {param1}, {param2}")
+				.user(u -> u.param("uparam1", "userValue1")
+					.param("uparam2", "userValue2"))
+				.toolNames("fun5")
+			.mutate().build() // mutate and build new prompt
+			.prompt().call().content());
 		// @formatter:on
 
 		assertThat(content).isEqualTo("response");
@@ -437,7 +444,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).defaultUser("Default user text").build();
 
-		var content = chatClient.prompt().call().content();
+		var content = awaitContent(chatClient.prompt().call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -446,7 +453,7 @@ public class ChatClientTest {
 		assertThat(userMessage.getMessageType()).isEqualTo(MessageType.USER);
 
 		// Override the default system text with prompt system
-		content = chatClient.prompt().user("Override default user text").call().content();
+		content = awaitContent(chatClient.prompt().user("Override default user text").call().content());
 
 		assertThat(content).isEqualTo("response");
 		userMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -459,7 +466,7 @@ public class ChatClientTest {
 		given(this.chatModel.call(this.promptCaptor.capture()))
 			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
-		assertThat(ChatClient.builder(this.chatModel).build().prompt("User prompt").call().content())
+		assertThat(awaitContent(ChatClient.builder(this.chatModel).build().prompt("User prompt").call().content()))
 			.isEqualTo("response");
 
 		Message userMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -472,7 +479,8 @@ public class ChatClientTest {
 		given(this.chatModel.call(this.promptCaptor.capture()))
 			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
-		assertThat(ChatClient.builder(this.chatModel).build().prompt().user("User prompt").call().content())
+		assertThat(
+				awaitContent(ChatClient.builder(this.chatModel).build().prompt().user("User prompt").call().content()))
 			.isEqualTo("response");
 
 		Message userMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -490,7 +498,8 @@ public class ChatClientTest {
 
 		UserMessage message = UserMessage.builder().text("User prompt").media(List.of(media)).build();
 		Prompt prompt = new Prompt(message);
-		assertThat(ChatClient.builder(this.chatModel).build().prompt(prompt).call().content()).isEqualTo("response");
+		assertThat(awaitContent(ChatClient.builder(this.chatModel).build().prompt(prompt).call().content()))
+			.isEqualTo("response");
 
 		assertThat(this.promptCaptor.getValue().getInstructions()).hasSize(1);
 		Message userMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -504,12 +513,12 @@ public class ChatClientTest {
 		given(this.chatModel.call(this.promptCaptor.capture()))
 			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
-		String response = ChatClient.builder(this.chatModel)
+		String response = awaitContent(ChatClient.builder(this.chatModel)
 			.build()
 			.prompt("What's Spring AI?")
 			.system("System prompt")
 			.call()
-			.content();
+			.content());
 
 		assertThat(response).isEqualTo("response");
 
@@ -536,10 +545,10 @@ public class ChatClientTest {
 				.defaultToolNames("function1")
 				.build();
 
-		String response = client.prompt()
+		String response = awaitContent(client.prompt()
 				.user(u -> u.text("User text {music}").param("music", "Rock").media(MimeTypeUtils.IMAGE_PNG, url))
 				.call()
-				.content();
+			.content());
 		// @formatter:on
 
 		assertThat(response).isEqualTo("response");
@@ -599,7 +608,7 @@ public class ChatClientTest {
 			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
-		var content = chatClient.prompt("my question").call().content();
+		var content = awaitContent(chatClient.prompt("my question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -616,7 +625,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new SystemMessage("instructions"), UserMessage.builder().text("my question").build());
-		var content = chatClient.prompt(prompt).call().content();
+		var content = awaitContent(chatClient.prompt(prompt).call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -632,7 +641,7 @@ public class ChatClientTest {
 			.willReturn(Mono.just(new ChatResponse(List.of(new Generation(new AssistantMessage("response"))))));
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
-		var content = chatClient.prompt("my question").user("another question").call().content();
+		var content = awaitContent(chatClient.prompt("my question").user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -649,7 +658,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new UserMessage("my question"), new AssistantMessage("your answer"));
-		var content = chatClient.prompt(prompt).user("another question").call().content();
+		var content = awaitContent(chatClient.prompt(prompt).user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -666,7 +675,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new UserMessage("my question"));
-		var content = chatClient.prompt(prompt).user("another question").call().content();
+		var content = awaitContent(chatClient.prompt(prompt).user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -683,7 +692,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new UserMessage("my question"), new AssistantMessage("your answer"));
-		var content = chatClient.prompt().messages(messages).user("another question").call().content();
+		var content = awaitContent(chatClient.prompt().messages(messages).user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -699,7 +708,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new UserMessage("my question"));
-		var content = chatClient.prompt().messages(messages).user("another question").call().content();
+		var content = awaitContent(chatClient.prompt().messages(messages).user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -718,7 +727,8 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new UserMessage("my question"), new AssistantMessage("your answer"));
-		var content = chatClient.prompt(prompt).system("instructions").user("another question").call().content();
+		var content = awaitContent(
+				chatClient.prompt(prompt).system("instructions").user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -735,7 +745,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new SystemMessage("instructions"), new UserMessage("my question"));
-		var content = chatClient.prompt(prompt).user("another question").call().content();
+		var content = awaitContent(chatClient.prompt(prompt).user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -752,7 +762,8 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		var prompt = new Prompt(new SystemMessage("instructions"), new UserMessage("my question"));
-		var content = chatClient.prompt(prompt).system("other instructions").user("another question").call().content();
+		var content = awaitContent(
+				chatClient.prompt(prompt).system("other instructions").user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -769,12 +780,12 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new UserMessage("my question"), new AssistantMessage("your answer"));
-		var content = chatClient.prompt()
+		var content = awaitContent(chatClient.prompt()
 			.messages(messages)
 			.system("instructions")
 			.user("another question")
 			.call()
-			.content();
+			.content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -791,7 +802,7 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new SystemMessage("instructions"), new UserMessage("my question"));
-		var content = chatClient.prompt().messages(messages).user("another question").call().content();
+		var content = awaitContent(chatClient.prompt().messages(messages).user("another question").call().content());
 
 		assertThat(content).isEqualTo("response");
 
@@ -808,12 +819,12 @@ public class ChatClientTest {
 
 		var chatClient = ChatClient.builder(this.chatModel).build();
 		List<Message> messages = List.of(new SystemMessage("instructions"), new UserMessage("my question"));
-		var content = chatClient.prompt()
+		var content = awaitContent(chatClient.prompt()
 			.messages(messages)
 			.system("other instructions")
 			.user("another question")
 			.call()
-			.content();
+			.content());
 
 		assertThat(content).isEqualTo("response");
 

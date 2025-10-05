@@ -29,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -75,14 +76,15 @@ public class AdvisorsTests {
 			.defaultAdvisors(mockAroundAdvisor1)
 			.build();
 
-		var content = chatClient.prompt()
-			.user("my name is John")
-			.advisors(mockAroundAdvisor2)
-			.advisors(a -> a.param("key1", "value1").params(Map.of("key2", "value2")))
-			.call()
-			.content();
-
-		assertThat(content).isEqualTo("Hello John");
+		StepVerifier
+			.create(chatClient.prompt()
+				.user("my name is John")
+				.advisors(mockAroundAdvisor2)
+				.advisors(a -> a.param("key1", "value1").params(Map.of("key2", "value2")))
+				.call()
+				.content())
+			.expectNext("Hello John")
+			.verifyComplete();
 
 		// AROUND
 		assertThat(mockAroundAdvisor1.chatClientResponse.chatResponse()).isNotNull();
@@ -113,18 +115,16 @@ public class AdvisorsTests {
 			.defaultAdvisors(mockAroundAdvisor1)
 			.build();
 
-		var content = chatClient.prompt()
-			.user("my name is John")
-			.advisors(a -> a.param("key1", "value1").params(Map.of("key2", "value2")))
-			.advisors(mockAroundAdvisor2)
-			.stream()
-			.content()
-			.collectList()
-			.block()
-			.stream()
-			.collect(Collectors.joining());
-
-		assertThat(content).isEqualTo("Hello John");
+		StepVerifier
+			.create(chatClient.prompt()
+				.user("my name is John")
+				.advisors(a -> a.param("key1", "value1").params(Map.of("key2", "value2")))
+				.advisors(mockAroundAdvisor2)
+				.stream()
+				.content()
+				.collectList())
+			.assertNext(chunks -> assertThat(chunks.stream().collect(Collectors.joining())).isEqualTo("Hello John"))
+			.verifyComplete();
 
 		// AROUND
 		assertThat(mockAroundAdvisor1.advisedChatClientResponses).isNotEmpty();

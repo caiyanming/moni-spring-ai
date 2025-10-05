@@ -17,6 +17,7 @@
 package org.springframework.ai.chat.client.advisor;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
@@ -27,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -65,9 +67,7 @@ public class SimpleLoggerAdvisorTests {
 
 		var chatClient = ChatClient.builder(this.chatModel).defaultAdvisors(loggerAdvisor).build();
 
-		var content = chatClient.prompt().user("Please answer my question XYZ").call().content();
-
-		validate(content, output);
+		validate(awaitContent(chatClient.prompt().user("Please answer my question XYZ").call().content()), output);
 	}
 
 	@Test
@@ -85,9 +85,7 @@ public class SimpleLoggerAdvisorTests {
 
 		var chatClient = ChatClient.builder(this.chatModel).defaultAdvisors(loggerAdvisor).build();
 
-		String content = join(chatClient.prompt().user("Please answer my question XYZ").stream().content());
-
-		validate(content, output);
+		validate(join(chatClient.prompt().user("Please answer my question XYZ").stream().content()), output);
 	}
 
 	@Test
@@ -108,8 +106,20 @@ public class SimpleLoggerAdvisorTests {
 		assertThat(output.getOut()).contains("response:", "finishReason");
 	}
 
+	private String awaitContent(Mono<String> mono) {
+		AtomicReference<String> valueRef = new AtomicReference<>();
+		StepVerifier.create(mono.flux().collectList())
+			.consumeNextWith(values -> valueRef.set(values.isEmpty() ? null : values.get(0)))
+			.verifyComplete();
+		return valueRef.get();
+	}
+
 	private String join(Flux<String> fluxContent) {
-		return fluxContent.collectList().block().stream().collect(Collectors.joining());
+		AtomicReference<String> joined = new AtomicReference<>("");
+		StepVerifier.create(fluxContent.collectList())
+			.consumeNextWith(values -> joined.set(values.stream().collect(Collectors.joining())))
+			.verifyComplete();
+		return joined.get();
 	}
 
 }

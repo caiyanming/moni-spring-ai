@@ -16,7 +16,9 @@
 
 package org.springframework.ai.chat.client;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
@@ -27,6 +29,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.test.StepVerifier;
 
 import org.springframework.ai.chat.client.advisor.PromptChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -62,7 +65,23 @@ public class ChatClientAdvisorTests {
 	ArgumentCaptor<Prompt> promptCaptor;
 
 	private String join(Flux<String> fluxContent) {
-		return fluxContent.collectList().block().stream().collect(Collectors.joining());
+		AtomicReference<String> joined = new AtomicReference<>("");
+		StepVerifier.create(fluxContent.collectList())
+			.consumeNextWith(values -> joined.set(values.stream().collect(Collectors.joining())))
+			.verifyComplete();
+		return joined.get();
+	}
+
+	private void awaitMemoryEntry(ChatMemory chatMemory, MessageType messageType, String expectedText) {
+		StepVerifier.create(Mono.defer(() -> {
+			List<Message> messages = chatMemory.get(ChatMemory.DEFAULT_CONVERSATION_ID);
+			boolean present = messages.stream()
+				.filter(message -> message.getMessageType() == messageType)
+				.anyMatch(message -> message.getText() != null && message.getText().contains(expectedText));
+			return present ? Mono.just(true) : Mono.empty();
+		}).repeatWhenEmpty(repeat -> repeat.delayElements(Duration.ofMillis(10)).take(50)))
+			.expectNext(true)
+			.verifyComplete();
 	}
 
 	@Test
@@ -90,11 +109,10 @@ public class ChatClientAdvisorTests {
 			.build();
 
 		// Simulate a user prompt and verify the response
-		ChatResponse chatResponse = chatClient.prompt().user("my name is John").call().chatResponse();
-
-		// Assert that the response content matches the expected output
-		String content = chatResponse.getResult().getOutput().getText();
-		assertThat(content).isEqualTo("Hello John");
+		StepVerifier.create(chatClient.prompt().user("my name is John").call().chatResponse())
+			.assertNext(
+					chatResponse -> assertThat(chatResponse.getResult().getOutput().getText()).isEqualTo("Hello John"))
+			.verifyComplete();
 
 		// Capture and verify the system message instructions
 		Message systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -114,10 +132,9 @@ public class ChatClientAdvisorTests {
 		assertThat(userMessage.getText()).isEqualToIgnoringWhitespace("my name is John");
 
 		// Simulate another user prompt and verify the response
-		content = chatClient.prompt().user("What is my name?").call().content();
-
-		// Assert that the response content matches the expected output
-		assertThat(content).isEqualTo("Your name is John");
+		StepVerifier.create(chatClient.prompt().user("What is my name?").call().content())
+			.expectNext("Your name is John")
+			.verifyComplete();
 
 		// Capture and verify the updated system message instructions
 		systemMessage = this.promptCaptor.getValue().getInstructions().get(0);
@@ -190,6 +207,8 @@ public class ChatClientAdvisorTests {
 		// Capture and verify the user message instructions
 		Message userMessage = this.promptCaptor.getValue().getInstructions().get(1);
 		assertThat(userMessage.getText()).isEqualToIgnoringWhitespace("my name is John");
+
+		awaitMemoryEntry(chatMemory, MessageType.ASSISTANT, "Hello John");
 
 		// Simulate another streaming user prompt and verify the response
 		content = join(chatClient.prompt().user("What is my name?").stream().content());

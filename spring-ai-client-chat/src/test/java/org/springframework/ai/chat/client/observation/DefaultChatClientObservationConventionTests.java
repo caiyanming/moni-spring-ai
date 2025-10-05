@@ -75,9 +75,9 @@ class DefaultChatClientObservationConventionTests {
 			}
 
 			@Override
-			public ChatClientResponse adviseCall(ChatClientRequest chatClientRequest,
+			public Mono<ChatClientResponse> adviseCall(ChatClientRequest chatClientRequest,
 					CallAdvisorChain callAdvisorChain) {
-				return null;
+				return Mono.empty();
 			}
 
 		};
