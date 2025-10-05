@@ -49,12 +49,12 @@
 		</dependency>
 
 		<!-- Test dependencies -->
-		<!-- <dependency>
+		<dependency>
 			<groupId>org.springframework.ai</groupId>
 			<artifactId>spring-ai-test</artifactId>
 			<version>${project.parent.version}</version>
 			<scope>test</scope>
-		</dependency> TEMPORARILY DISABLED - spring-ai-test module disabled -->
+		</dependency>
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
