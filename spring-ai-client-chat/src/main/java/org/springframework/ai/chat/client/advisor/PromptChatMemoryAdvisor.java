@@ -188,8 +188,9 @@ public final class PromptChatMemoryAdvisor implements BaseChatMemoryAdvisor {
 			.publishOn(scheduler)
 			.flatMap(request -> this.before(request, streamAdvisorChain))
 			.flatMapMany(streamAdvisorChain::nextStream)
-			.transform(flux -> new ChatClientMessageAggregator().aggregateChatClientResponse(flux,
-					response -> this.after(response, streamAdvisorChain)));
+			.transform(flux -> new ChatClientMessageAggregator().aggregateChatClientResponse(flux, response -> {
+				this.after(response, streamAdvisorChain).subscribe();
+			}));
 	}
 
 	/**
