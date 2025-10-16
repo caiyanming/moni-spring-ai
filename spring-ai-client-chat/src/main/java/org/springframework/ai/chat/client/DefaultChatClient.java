@@ -417,9 +417,12 @@ public class DefaultChatClient implements ChatClient {
 
 		private <T> Mono<T> doSingleWithBeanOutputConverter(StructuredOutputConverter<T> outputConverter) {
 			return doGetObservableChatClientResponse(this.request, outputConverter.getFormat())
-				.map(ChatClientResponse::chatResponse)
-				.flatMap(chatResponse -> Mono.justOrEmpty(getContentFromChatResponse(chatResponse))
-					.map(outputConverter::convert));
+				.flatMap(clientResponse -> {
+					ChatResponse chatResponse = clientResponse.chatResponse();
+					return Mono.justOrEmpty(getContentFromChatResponse(chatResponse))
+						.map(outputConverter::convert)
+						.contextWrite(ctx -> ctx.put(ChatClientContextKeys.CHAT_CLIENT_RESPONSE, clientResponse));
+				});
 		}
 
 		@Override
