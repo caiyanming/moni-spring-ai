@@ -216,11 +216,14 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 		Filter filter = this.filterExpressionConverter.convertExpression(filterExpression);
 
 		return this.qdrantClient.deleteByFilter(this.collectionName, filter).flatMap(response -> {
-			if (response.getResult().getStatus() != io.qdrant.client.grpc.Points.UpdateStatus.Completed) {
-				return Mono.error(new IllegalStateException(
-						"Failed to delete documents by filter: " + response.getResult().getStatus()));
+			// Linus: Good code eliminates special cases - only reject real errors
+			// Qdrant returns "Acknowledged" in async mode (normal), "Completed" in sync
+			// mode (normal)
+			// Only "ClockRejected" is an actual error
+			if (response.getResult().getStatus() == io.qdrant.client.grpc.Points.UpdateStatus.ClockRejected) {
+				return Mono.error(new IllegalStateException("Failed to delete documents by filter: clock rejected"));
 			}
-			logger.debug("Deleted documents matching filter expression");
+			logger.debug("Deleted documents matching filter expression (status: {})", response.getResult().getStatus());
 			return Mono.<Void>empty();
 		}).doOnError(e -> logger.error("Failed to delete documents by filter: {}", e.getMessage(), e));
 	}
