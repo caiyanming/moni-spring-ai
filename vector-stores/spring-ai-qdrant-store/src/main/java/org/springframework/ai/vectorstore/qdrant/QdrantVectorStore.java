@@ -140,14 +140,14 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	private static final String CONTENT_FIELD_NAME = "doc_content";
 
 	/**
-	 * Maximum number of retry attempts when verifying deletion completion.
-	 * With 200ms interval, 25 retries = 5 seconds total wait time.
+	 * Maximum number of retry attempts when verifying deletion completion. With 200ms
+	 * interval, 25 retries = 5 seconds total wait time.
 	 */
 	private static final int DELETION_VERIFICATION_MAX_RETRIES = 25;
 
 	/**
-	 * Interval between deletion verification retries.
-	 * 200ms provides good balance between responsiveness and server load.
+	 * Interval between deletion verification retries. 200ms provides good balance between
+	 * responsiveness and server load.
 	 */
 	private static final Duration DELETION_VERIFICATION_RETRY_INTERVAL = Duration.ofMillis(200);
 
@@ -240,7 +240,8 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 			}
 
 			// Acknowledged: deletion received but not yet processed (timeout scenario)
-			// Per Qdrant source (clean.rs:139), wait=true may return Acknowledged on timeout
+			// Per Qdrant source (clean.rs:139), wait=true may return Acknowledged on
+			// timeout
 			// We must verify deletion completed before continuing
 			if (status == io.qdrant.client.grpc.Points.UpdateStatus.Acknowledged) {
 				logger.warn("Deletion acknowledged but not completed (timeout), verifying deletion state...");
@@ -252,49 +253,46 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	}
 
 	/**
-	 * Verifies that deletion has completed by checking if any points remain matching the filter.
-	 * This is necessary when deleteByFilter returns Acknowledged status (timeout scenario).
+	 * Verifies that deletion has completed by checking if any points remain matching the
+	 * filter. This is necessary when deleteByFilter returns Acknowledged status (timeout
+	 * scenario).
 	 *
-	 * <p>Acknowledged means deletion is "received but not yet processed" - Qdrant is still
-	 * deleting in the background. We retry for up to 5 seconds to give Qdrant time to complete.
-	 *
+	 * <p>
+	 * Acknowledged means deletion is "received but not yet processed" - Qdrant is still
+	 * deleting in the background. We retry for up to 5 seconds to give Qdrant time to
+	 * complete.
 	 * @param filter the filter to check
-	 * @return Mono that completes successfully if no points remain, or errors after retry exhausted
+	 * @return Mono that completes successfully if no points remain, or errors after retry
+	 * exhausted
 	 */
 	private Mono<Void> verifyDeletionCompleted(Filter filter) {
-		return Mono.defer(() -> this.qdrantClient.countPoints(this.collectionName, filter))
-			.flatMap(count -> {
-				if (count == 0) {
-					logger.debug("Deletion verified: no remaining points");
-					return Mono.<Void>empty();
-				}
+		return Mono.defer(() -> this.qdrantClient.countPoints(this.collectionName, filter)).flatMap(count -> {
+			if (count == 0) {
+				logger.debug("Deletion verified: no remaining points");
+				return Mono.<Void>empty();
+			}
 
-				// Points still exist - deletion still in progress
-				if (logger.isTraceEnabled()) {
-					logger.trace("Deletion still in progress: {} points remaining", count);
-				}
-				return Mono.error(new DeletionStillInProgressException(count));
-			})
+			// Points still exist - deletion still in progress
+			if (logger.isTraceEnabled()) {
+				logger.trace("Deletion still in progress: {} points remaining", count);
+			}
+			return Mono.error(new DeletionStillInProgressException(count));
+		})
 			.retryWhen(Retry.fixedDelay(DELETION_VERIFICATION_MAX_RETRIES, DELETION_VERIFICATION_RETRY_INTERVAL)
 				.filter(throwable -> throwable instanceof DeletionStillInProgressException)
 				.doBeforeRetry(signal -> {
 					DeletionStillInProgressException ex = (DeletionStillInProgressException) signal.failure();
-					logger.debug("Deletion verification retry {}/{}: {} points remaining",
-						signal.totalRetries() + 1,
-						DELETION_VERIFICATION_MAX_RETRIES,
-						ex.getRemainingCount());
-				})
-			)
+					logger.debug("Deletion verification retry {}/{}: {} points remaining", signal.totalRetries() + 1,
+							DELETION_VERIFICATION_MAX_RETRIES, ex.getRemainingCount());
+				}))
 			.onErrorResume(DeletionStillInProgressException.class, ex -> {
 				long totalWaitSeconds = DELETION_VERIFICATION_RETRY_INTERVAL
 					.multipliedBy(DELETION_VERIFICATION_MAX_RETRIES)
 					.toSeconds();
 				String errorMsg = String.format(
-					"Deletion incomplete after %d seconds of verification: %d points still exist. " +
-					"Qdrant background deletion may be slow. Consider increasing timeout or retry later.",
-					totalWaitSeconds,
-					ex.getRemainingCount()
-				);
+						"Deletion incomplete after %d seconds of verification: %d points still exist. "
+								+ "Qdrant background deletion may be slow. Consider increasing timeout or retry later.",
+						totalWaitSeconds, ex.getRemainingCount());
 				logger.error(errorMsg);
 				return Mono.error(new IllegalStateException(errorMsg));
 			})
@@ -306,10 +304,11 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	}
 
 	/**
-	 * Exception indicating deletion is still in progress in Qdrant background.
-	 * Used internally for retry logic.
+	 * Exception indicating deletion is still in progress in Qdrant background. Used
+	 * internally for retry logic.
 	 */
 	private static class DeletionStillInProgressException extends RuntimeException {
+
 		private final long remainingCount;
 
 		DeletionStillInProgressException(long remainingCount) {
@@ -320,6 +319,7 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 		public long getRemainingCount() {
 			return remainingCount;
 		}
+
 	}
 
 	/**

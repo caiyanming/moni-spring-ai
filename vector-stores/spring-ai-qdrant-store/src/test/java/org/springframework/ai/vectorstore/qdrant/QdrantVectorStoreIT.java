@@ -102,17 +102,26 @@ public class QdrantVectorStoreIT extends BaseVectorStoreTests {
 					Collections.singletonMap("meta2", List.of("meta-list"))));
 
 	@BeforeAll
-	static void setup() throws InterruptedException, ExecutionException {
+	static void setup() {
 
 		String host = qdrantContainer.getHost();
 		int port = qdrantContainer.getGrpcPort();
-		QdrantClient client = new QdrantClient(QdrantGrpcClient.newBuilder(host, port, false).build());
+
+		io.grpc.ManagedChannel channel = io.grpc.Grpc
+			.newChannelBuilder(host + ":" + port, io.grpc.InsecureChannelCredentials.create())
+			.build();
+
+		QdrantClient client = QdrantGrpcClient.newBuilder().channel(channel).build();
 
 		// Use VectorsConfig instead of direct VectorParams
 		var vectorParams = VectorParams.newBuilder().setDistance(Distance.Cosine).setSize(EMBEDDING_DIMENSION).build();
 		var vectorsConfig = VectorsConfig.newBuilder().setParams(vectorParams).build();
+		var createCollection = io.qdrant.client.grpc.Collections.CreateCollection.newBuilder()
+			.setCollectionName(COLLECTION_NAME)
+			.setVectorsConfig(vectorsConfig)
+			.build();
 
-		client.createCollectionAsync(COLLECTION_NAME, vectorsConfig).get();
+		client.createCollection(createCollection).block();
 
 		client.close();
 	}
@@ -538,7 +547,12 @@ public class QdrantVectorStoreIT extends BaseVectorStoreTests {
 		public QdrantClient qdrantClient() {
 			String host = qdrantContainer.getHost();
 			int port = qdrantContainer.getGrpcPort();
-			return new QdrantClient(QdrantGrpcClient.newBuilder(host, port, false).build());
+
+			io.grpc.ManagedChannel channel = io.grpc.Grpc
+				.newChannelBuilder(host + ":" + port, io.grpc.InsecureChannelCredentials.create())
+				.build();
+
+			return QdrantGrpcClient.newBuilder().channel(channel).build();
 		}
 
 		@Bean

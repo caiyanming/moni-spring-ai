@@ -29,6 +29,7 @@ import io.qdrant.client.QdrantClient;
 import io.qdrant.client.QdrantGrpcClient;
 import io.qdrant.client.grpc.Collections.Distance;
 import io.qdrant.client.grpc.Collections.VectorParams;
+import io.qdrant.client.grpc.Collections.VectorsConfig;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
@@ -90,16 +91,25 @@ public class QdrantVectorStoreObservationIT {
 	}
 
 	@BeforeAll
-	static void setup() throws InterruptedException, ExecutionException {
+	static void setup() {
 
 		String host = qdrantContainer.getHost();
 		int port = qdrantContainer.getGrpcPort();
-		QdrantClient client = new QdrantClient(QdrantGrpcClient.newBuilder(host, port, false).build());
 
-		client
-			.createCollectionAsync(COLLECTION_NAME,
-					VectorParams.newBuilder().setDistance(Distance.Cosine).setSize(EMBEDDING_DIMENSION).build())
-			.get();
+		io.grpc.ManagedChannel channel = io.grpc.Grpc
+			.newChannelBuilder(host + ":" + port, io.grpc.InsecureChannelCredentials.create())
+			.build();
+
+		QdrantClient client = QdrantGrpcClient.newBuilder().channel(channel).build();
+
+		var vectorParams = VectorParams.newBuilder().setDistance(Distance.Cosine).setSize(EMBEDDING_DIMENSION).build();
+		var vectorsConfig = VectorsConfig.newBuilder().setParams(vectorParams).build();
+		var createCollection = io.qdrant.client.grpc.Collections.CreateCollection.newBuilder()
+			.setCollectionName(COLLECTION_NAME)
+			.setVectorsConfig(vectorsConfig)
+			.build();
+
+		client.createCollection(createCollection).block();
 
 		client.close();
 	}
@@ -142,7 +152,9 @@ public class QdrantVectorStoreObservationIT {
 			observationRegistry.clear();
 
 			List<Document> results = vectorStore
-				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build());
+				.similaritySearch(SearchRequest.builder().query("What is Great Depression").topK(1).build())
+				.collectList()
+				.block();
 
 			assertThat(results).isNotEmpty();
 
@@ -188,8 +200,12 @@ public class QdrantVectorStoreObservationIT {
 		public QdrantClient qdrantClient() {
 			String host = qdrantContainer.getHost();
 			int port = qdrantContainer.getGrpcPort();
-			QdrantClient qdrantClient = new QdrantClient(QdrantGrpcClient.newBuilder(host, port, false).build());
-			return qdrantClient;
+
+			io.grpc.ManagedChannel channel = io.grpc.Grpc
+				.newChannelBuilder(host + ":" + port, io.grpc.InsecureChannelCredentials.create())
+				.build();
+
+			return QdrantGrpcClient.newBuilder().channel(channel).build();
 		}
 
 		@Bean

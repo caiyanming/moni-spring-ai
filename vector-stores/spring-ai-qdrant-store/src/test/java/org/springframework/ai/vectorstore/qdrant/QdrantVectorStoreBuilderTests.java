@@ -52,7 +52,6 @@ class QdrantVectorStoreBuilderTests {
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("collectionName",
 				QdrantVectorStore.DEFAULT_COLLECTION_NAME);
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("initializeSchema", false);
-		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchSize", 1000);
 	}
 
 	@Test
@@ -60,12 +59,10 @@ class QdrantVectorStoreBuilderTests {
 		QdrantVectorStore vectorStore = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel)
 			.collectionName("custom_collection")
 			.initializeSchema(true)
-			.batchSize(500)
 			.build();
 
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("collectionName", "custom_collection");
 		assertThat(vectorStore).hasFieldOrPropertyWithValue("initializeSchema", true);
-		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchSize", 500);
 	}
 
 	@Test
@@ -79,7 +76,7 @@ class QdrantVectorStoreBuilderTests {
 	void nullEmbeddingModelShouldThrowException() {
 		assertThatThrownBy(() -> QdrantVectorStore.builder(this.qdrantClient, null))
 			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("EmbeddingModel must not be null");
+			.hasMessage("EmbeddingModel must be configured");
 	}
 
 	@Test
@@ -99,32 +96,11 @@ class QdrantVectorStoreBuilderTests {
 	}
 
 	@Test
-	void invalidBatchSizeShouldThrowException() {
-		assertThatThrownBy(() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).batchSize(0).build())
-			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("batchSize must be positive");
-
-		assertThatThrownBy(
-				() -> QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel).batchSize(-1).build())
-			.isInstanceOf(IllegalArgumentException.class)
-			.hasMessage("batchSize must be positive");
-	}
-
-	@Test
-	void minimumValidBatchSize() {
-		QdrantVectorStore vectorStore = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel)
-			.batchSize(1)
-			.build();
-
-		assertThat(vectorStore).hasFieldOrPropertyWithValue("batchSize", 1);
-	}
-
-	@Test
 	void builderMethodChaining() {
 		// Verify that all builder methods return the builder instance for method chaining
 		QdrantVectorStore.Builder builder = QdrantVectorStore.builder(this.qdrantClient, this.embeddingModel);
 
-		QdrantVectorStore.Builder result = builder.collectionName("test").initializeSchema(true).batchSize(100);
+		QdrantVectorStore.Builder result = builder.collectionName("test").initializeSchema(true);
 
 		assertThat(result).isSameAs(builder);
 
