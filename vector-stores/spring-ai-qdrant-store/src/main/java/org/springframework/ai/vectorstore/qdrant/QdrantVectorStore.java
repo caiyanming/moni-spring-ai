@@ -215,17 +215,56 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 
 		Filter filter = this.filterExpressionConverter.convertExpression(filterExpression);
 
-		return this.qdrantClient.deleteByFilter(this.collectionName, filter).flatMap(response -> {
-			// Linus: Good code eliminates special cases - only reject real errors
-			// Qdrant returns "Acknowledged" in async mode (normal), "Completed" in sync
-			// mode (normal)
-			// Only "ClockRejected" is an actual error
-			if (response.getResult().getStatus() == io.qdrant.client.grpc.Points.UpdateStatus.ClockRejected) {
-				return Mono.error(new IllegalStateException("Failed to delete documents by filter: clock rejected"));
+		return this.qdrantClient.deleteByFilter(this.collectionName, filter, true).flatMap(response -> {
+			var status = response.getResult().getStatus();
+
+			// Completed: deletion fully applied and ready for search
+			if (status == io.qdrant.client.grpc.Points.UpdateStatus.Completed) {
+				logger.debug("Deletion completed (status: Completed)");
+				return Mono.<Void>empty();
 			}
-			logger.debug("Deleted documents matching filter expression (status: {})", response.getResult().getStatus());
-			return Mono.<Void>empty();
+
+			// Acknowledged: deletion received but not yet processed (timeout scenario)
+			// Per Qdrant source (clean.rs:139), wait=true may return Acknowledged on timeout
+			// We must verify deletion completed before continuing
+			if (status == io.qdrant.client.grpc.Points.UpdateStatus.Acknowledged) {
+				logger.warn("Deletion acknowledged but not completed (timeout), verifying deletion state...");
+				return verifyDeletionCompleted(filter);
+			}
+
+			return Mono.error(new IllegalStateException("Failed to delete documents by filter: " + status));
 		}).doOnError(e -> logger.error("Failed to delete documents by filter: {}", e.getMessage(), e));
+	}
+
+	/**
+	 * Verifies that deletion has completed by checking if any points remain matching the filter.
+	 * This is necessary when deleteByFilter returns Acknowledged status (timeout scenario).
+	 *
+	 * @param filter the filter to check
+	 * @return Mono that completes successfully if no points remain, or errors if points still exist
+	 */
+	private Mono<Void> verifyDeletionCompleted(Filter filter) {
+		return this.qdrantClient.countPoints(this.collectionName, filter)
+			.flatMap(count -> {
+				if (count == 0) {
+					logger.debug("Deletion verified: no remaining points");
+					return Mono.<Void>empty();
+				}
+
+				// Points still exist - deletion incomplete
+				String errorMsg = String.format(
+					"Deletion incomplete: %d points still exist matching filter. " +
+					"This indicates Qdrant internal timeout. Please retry the operation.",
+					count
+				);
+				logger.error(errorMsg);
+				return Mono.error(new IllegalStateException(errorMsg));
+			})
+			.doOnError(e -> {
+				if (!(e instanceof IllegalStateException)) {
+					logger.error("Failed to verify deletion state", e);
+				}
+			});
 	}
 
 	/**
