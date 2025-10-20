@@ -16,13 +16,16 @@
 
 package org.springframework.ai.vectorstore.qdrant;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
+
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.util.retry.Retry;
 
 import io.qdrant.client.QdrantClient;
 import io.qdrant.client.grpc.Collections.Distance;
@@ -135,6 +138,18 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	public static final String DEFAULT_COLLECTION_NAME = "vector_store";
 
 	private static final String CONTENT_FIELD_NAME = "doc_content";
+
+	/**
+	 * Maximum number of retry attempts when verifying deletion completion.
+	 * With 200ms interval, 25 retries = 5 seconds total wait time.
+	 */
+	private static final int DELETION_VERIFICATION_MAX_RETRIES = 25;
+
+	/**
+	 * Interval between deletion verification retries.
+	 * 200ms provides good balance between responsiveness and server load.
+	 */
+	private static final Duration DELETION_VERIFICATION_RETRY_INTERVAL = Duration.ofMillis(200);
 
 	private final QdrantClient qdrantClient;
 
@@ -255,21 +270,29 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 				}
 
 				// Points still exist - deletion still in progress
-				logger.debug("Deletion still in progress: {} points remaining, retrying...", count);
+				if (logger.isTraceEnabled()) {
+					logger.trace("Deletion still in progress: {} points remaining", count);
+				}
 				return Mono.error(new DeletionStillInProgressException(count));
 			})
-			.retryWhen(reactor.util.retry.Retry.fixedDelay(25, java.time.Duration.ofMillis(200))
+			.retryWhen(Retry.fixedDelay(DELETION_VERIFICATION_MAX_RETRIES, DELETION_VERIFICATION_RETRY_INTERVAL)
 				.filter(throwable -> throwable instanceof DeletionStillInProgressException)
 				.doBeforeRetry(signal -> {
 					DeletionStillInProgressException ex = (DeletionStillInProgressException) signal.failure();
-					logger.debug("Retry {}/{}: {} points remaining",
-						signal.totalRetries() + 1, 25, ex.getRemainingCount());
+					logger.debug("Deletion verification retry {}/{}: {} points remaining",
+						signal.totalRetries() + 1,
+						DELETION_VERIFICATION_MAX_RETRIES,
+						ex.getRemainingCount());
 				})
 			)
 			.onErrorResume(DeletionStillInProgressException.class, ex -> {
+				long totalWaitSeconds = DELETION_VERIFICATION_RETRY_INTERVAL
+					.multipliedBy(DELETION_VERIFICATION_MAX_RETRIES)
+					.toSeconds();
 				String errorMsg = String.format(
-					"Deletion incomplete after 5 seconds of verification: %d points still exist. " +
+					"Deletion incomplete after %d seconds of verification: %d points still exist. " +
 					"Qdrant background deletion may be slow. Consider increasing timeout or retry later.",
+					totalWaitSeconds,
 					ex.getRemainingCount()
 				);
 				logger.error(errorMsg);
