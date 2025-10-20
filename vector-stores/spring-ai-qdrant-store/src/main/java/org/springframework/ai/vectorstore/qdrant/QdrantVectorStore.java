@@ -240,22 +240,37 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 	 * Verifies that deletion has completed by checking if any points remain matching the filter.
 	 * This is necessary when deleteByFilter returns Acknowledged status (timeout scenario).
 	 *
+	 * <p>Acknowledged means deletion is "received but not yet processed" - Qdrant is still
+	 * deleting in the background. We retry for up to 5 seconds to give Qdrant time to complete.
+	 *
 	 * @param filter the filter to check
-	 * @return Mono that completes successfully if no points remain, or errors if points still exist
+	 * @return Mono that completes successfully if no points remain, or errors after retry exhausted
 	 */
 	private Mono<Void> verifyDeletionCompleted(Filter filter) {
-		return this.qdrantClient.countPoints(this.collectionName, filter)
+		return Mono.defer(() -> this.qdrantClient.countPoints(this.collectionName, filter))
 			.flatMap(count -> {
 				if (count == 0) {
 					logger.debug("Deletion verified: no remaining points");
 					return Mono.<Void>empty();
 				}
 
-				// Points still exist - deletion incomplete
+				// Points still exist - deletion still in progress
+				logger.debug("Deletion still in progress: {} points remaining, retrying...", count);
+				return Mono.error(new DeletionStillInProgressException(count));
+			})
+			.retryWhen(reactor.util.retry.Retry.fixedDelay(25, java.time.Duration.ofMillis(200))
+				.filter(throwable -> throwable instanceof DeletionStillInProgressException)
+				.doBeforeRetry(signal -> {
+					DeletionStillInProgressException ex = (DeletionStillInProgressException) signal.failure();
+					logger.debug("Retry {}/{}: {} points remaining",
+						signal.totalRetries() + 1, 25, ex.getRemainingCount());
+				})
+			)
+			.onErrorResume(DeletionStillInProgressException.class, ex -> {
 				String errorMsg = String.format(
-					"Deletion incomplete: %d points still exist matching filter. " +
-					"This indicates Qdrant internal timeout. Please retry the operation.",
-					count
+					"Deletion incomplete after 5 seconds of verification: %d points still exist. " +
+					"Qdrant background deletion may be slow. Consider increasing timeout or retry later.",
+					ex.getRemainingCount()
 				);
 				logger.error(errorMsg);
 				return Mono.error(new IllegalStateException(errorMsg));
@@ -265,6 +280,23 @@ public class QdrantVectorStore extends AbstractObservationVectorStore implements
 					logger.error("Failed to verify deletion state", e);
 				}
 			});
+	}
+
+	/**
+	 * Exception indicating deletion is still in progress in Qdrant background.
+	 * Used internally for retry logic.
+	 */
+	private static class DeletionStillInProgressException extends RuntimeException {
+		private final long remainingCount;
+
+		DeletionStillInProgressException(long remainingCount) {
+			super("Deletion still in progress: " + remainingCount + " points remaining");
+			this.remainingCount = remainingCount;
+		}
+
+		public long getRemainingCount() {
+			return remainingCount;
+		}
 	}
 
 	/**
